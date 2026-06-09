@@ -88,6 +88,14 @@ https://github.com/your-name/seemountain-demo.git
 
 如果你还没有仓库，可以先在 GitHub 网页上创建一个空仓库，再使用上面的命令推送。
 
+如果你的网络环境下 `git push` 连接 GitHub 不稳定，可以使用 GitHub API 发布脚本：
+
+```powershell
+.\publish-gh-api.ps1
+```
+
+这个脚本使用已登录的 GitHub CLI 上传当前目录文件，不依赖 `git push`。
+
 ## 发布前检查
 
 发布后建议用手机浏览器测试：
@@ -120,6 +128,7 @@ https://github.com/your-name/seemountain-demo.git
 ├── .gitignore
 ├── .nojekyll
 ├── index.html
+├── publish-gh-api.ps1
 ├── publish.ps1
 └── README.md
 ```
