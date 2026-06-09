@@ -67,6 +67,7 @@ const state = {
   cameraMode: "demo",
   frozen: false,
   hasScanResults: false,
+  arLive: false,
   uploadedUrl: null,
   uploadContext: "scanner",
   lastTargets: [],
@@ -454,25 +455,36 @@ function handleOrientation(event) {
   state.heading = smoothHeading(state.heading, normalizeDegrees(rawHeading), 0.18);
   els.headingRange.value = String(Math.round(state.heading));
   updateHeadingUI();
-  renderTargets();
+  if (state.arLive || state.hasScanResults) {
+    renderTargets();
+  } else {
+    renderRadar(computeTargets().slice(0, MAX_LABELS));
+  }
   renderDevPanel();
 }
 
 function scan() {
   els.scannerScreen.classList.add("scanning");
   state.hasScanResults = false;
+  state.arLive = false;
   renderTargets();
 
   window.setTimeout(() => {
-    freezeCurrentFrame();
+    if (state.cameraMode === "upload") {
+      freezeCurrentFrame();
+    } else {
+      state.frozen = false;
+      els.frozen.removeAttribute("src");
+      els.frozen.classList.remove("active");
+      showCameraLayer(state.cameraMode === "live" ? "camera" : "fallback");
+      setModePill(state.cameraMode === "live" ? "实时识别" : "实时叠加");
+    }
     state.hasScanResults = true;
+    state.arLive = true;
     state.lastTargets = computeTargets().slice(0, MAX_LABELS);
     renderTargets();
     renderDevPanel();
     els.scannerScreen.classList.remove("scanning");
-
-    const primary = state.lastTargets[0];
-    if (primary) showDetail(primary);
   }, 780);
 }
 
@@ -499,6 +511,7 @@ function freezeCurrentFrame() {
 function clearFrozenFrame() {
   state.frozen = false;
   state.hasScanResults = false;
+  state.arLive = false;
   state.lastTargets = [];
   els.frozen.removeAttribute("src");
   els.frozen.classList.remove("active");
@@ -765,10 +778,11 @@ function renderDevPanel() {
     ["页面", state.screen === "home" ? "地图入口" : "扫描页"],
     ["观景点", getActiveViewpoint()?.name ?? "-"],
     ["画面来源", cameraModeLabel()],
+    ["AR 状态", state.arLive ? "实时叠加中" : "等待扫描"],
     ["位置", state.location ? `${state.location.lat.toFixed(5)}, ${state.location.lon.toFixed(5)}` : "-"],
     ["朝向", `${Math.round(state.heading)}°`],
     ["FOV", `${FOV_DEGREES}°`],
-    ["结果状态", state.hasScanResults ? `已显示 ${state.lastTargets.length} 个目标` : "等待扫描"]
+    ["结果状态", state.hasScanResults ? `实时显示 ${state.lastTargets.length} 个目标` : "等待扫描"]
   ];
 
   targets.forEach((target, index) => {
