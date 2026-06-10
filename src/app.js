@@ -82,10 +82,12 @@ const els = {
   detailRoute: document.querySelector("#detailRoute"),
   compassDialog: document.querySelector("#compassDialog"),
   closeCompassBtn: document.querySelector("#closeCompassBtn"),
+  compassMap: document.querySelector("#compassMap"),
   compassViewCone: document.querySelector("#compassViewCone"),
   compassHeadingLine: document.querySelector("#compassHeadingLine"),
   compassDial: document.querySelector("#compassDial"),
   compassDots: document.querySelector("#compassDots"),
+  compassPopup: document.querySelector("#compassPopup"),
   compassBearingText: document.querySelector("#compassBearingText"),
   compassSourceText: document.querySelector("#compassSourceText"),
   toggleCompassOverlayBtn: document.querySelector("#toggleCompassOverlayBtn")
@@ -113,7 +115,13 @@ const state = {
   mapMarkers: [],
   hiddenTargetCount: 0,
   compassStyle: "standard",
-  compassOverlay: false
+  compassOverlay: false,
+  compassMap: null,
+  compassMapReady: false,
+  compassMarkers: [],
+  compassPopupTarget: null,
+  headingFrame: null,
+  compassCenter: null
 };
 
 init();
@@ -168,6 +176,7 @@ function bindEvents() {
   els.locateBtn.addEventListener("click", requestSensors);
   els.miniRadarBtn.addEventListener("click", openCompassMap);
   els.closeCompassBtn.addEventListener("click", () => els.compassDialog.close());
+  els.compassDialog.addEventListener("close", hideCompassPopup);
   els.toggleCompassOverlayBtn.addEventListener("click", toggleCompassOverlay);
   document.querySelectorAll("[data-compass-style]").forEach((button) => {
     button.addEventListener("click", () => setCompassStyle(button.dataset.compassStyle));
@@ -179,7 +188,7 @@ function bindEvents() {
     renderHome();
     renderTargets();
     renderDevPanel();
-    renderCompassMap();
+    updateCompassHeadingOverlay();
   });
   els.closeDetail.addEventListener("click", () => els.detailDialog.close());
   els.labelLayer.addEventListener("click", (event) => {
@@ -542,15 +551,27 @@ function handleOrientation(event) {
   if (rawHeading === null) return;
 
   state.heading = smoothHeading(state.heading, normalizeDegrees(rawHeading), 0.18);
-  els.headingRange.value = String(Math.round(state.heading));
-  updateHeadingUI();
-  if (state.arLive || state.hasScanResults) {
-    renderTargets();
-  } else {
-    renderRadar(computeTargets().slice(0, MAX_LABELS));
-  }
-  renderDevPanel();
-  renderCompassMap();
+  scheduleHeadingRender();
+}
+
+function scheduleHeadingRender() {
+  if (state.headingFrame) return;
+  state.headingFrame = window.requestAnimationFrame(() => {
+    state.headingFrame = null;
+    els.headingRange.value = String(Math.round(state.heading));
+    updateHeadingUI();
+    if (els.compassDialog.open) {
+      updateCompassHeadingOverlay();
+      return;
+    }
+    if (state.arLive || state.hasScanResults) {
+      renderTargets();
+    } else {
+      renderRadar(computeTargets().slice(0, MAX_LABELS));
+    }
+    renderDevPanel();
+    updateCompassHeadingOverlay();
+  });
 }
 
 function scan() {
@@ -682,7 +703,6 @@ function renderTargets() {
   }
 
   renderRadar(targets);
-  renderCompassMap();
 }
 
 function computeTargets() {
@@ -939,6 +959,7 @@ function openCompassMap() {
   if (!els.compassDialog.open) {
     els.compassDialog.showModal();
   }
+  setupCompassMapWhenReady();
   renderCompassMap();
 }
 
@@ -955,13 +976,18 @@ function setCompassStyle(style) {
   renderCompassMap();
 }
 
+function setupCompassMapWhenReady() {
+  setupCompassMap();
+  window.setTimeout(setupCompassMap, 700);
+  window.setTimeout(setupCompassMap, 1800);
+  window.setTimeout(setupCompassMap, 3200);
+}
+
 function renderCompassMap() {
   if (!els.compassDialog.open) return;
 
   const locationPoint = getMapLocation();
   const peaks = getDisplayPeaks();
-  const bounds = getBounds([...peaks, locationPoint]);
-  const center = projectToMapFallback(locationPoint, bounds);
   const heading = normalizeDegrees(state.heading);
 
   els.compassBearingText.textContent = `${Math.round(heading)}°`;
@@ -969,16 +995,102 @@ function renderCompassMap() {
   els.toggleCompassOverlayBtn.classList.toggle("active", state.compassOverlay);
   els.toggleCompassOverlayBtn.textContent = state.compassOverlay ? "隐藏叠层" : "罗盘叠层";
   els.compassDial.className = `compass-dial ${state.compassStyle} ${state.compassOverlay ? "active" : ""}`;
-  els.compassDial.style.left = `${center.x}%`;
-  els.compassDial.style.top = `${center.y}%`;
-  els.compassDial.style.transform = `translate(-50%, -50%) rotate(${-heading}deg)`;
 
-  els.compassViewCone.style.left = `${center.x}%`;
-  els.compassViewCone.style.top = `${center.y}%`;
-  els.compassViewCone.style.transform = `translate(-50%, -50%) rotate(${heading}deg)`;
-  els.compassHeadingLine.style.left = `${center.x}%`;
-  els.compassHeadingLine.style.top = `${center.y}%`;
-  els.compassHeadingLine.style.transform = `translate(-50%, -100%) rotate(${heading}deg)`;
+  if (state.compassMapReady) {
+    renderCompassMapMarkers(peaks);
+    focusCompassMap(locationPoint);
+  } else {
+    renderCompassFallback(peaks, locationPoint);
+  }
+
+  updateCompassHeadingOverlay();
+}
+
+function setupCompassMap() {
+  if (state.compassMap || !window.maplibregl) return;
+
+  const center = getMapLocation();
+  try {
+    state.compassMap = new window.maplibregl.Map({
+      container: els.compassMap,
+      style: "https://tiles.openfreemap.org/styles/liberty",
+      center: [center.lon, center.lat],
+      zoom: 12.8,
+      attributionControl: false,
+      interactive: true
+    });
+
+    state.compassMap.addControl(new window.maplibregl.NavigationControl({ showCompass: false }), "top-right");
+    state.compassMap.on("load", () => {
+      state.compassMapReady = true;
+      els.compassDialog.classList.add("map-ready");
+      renderCompassMap();
+    });
+    state.compassMap.on("move", () => {
+      hideCompassPopup();
+      updateCompassHeadingOverlay();
+    });
+    state.compassMap.on("click", hideCompassPopup);
+    state.compassMap.on("error", () => {
+      state.compassMapReady = false;
+      els.compassDialog.classList.remove("map-ready");
+    });
+  } catch {
+    state.compassMap = null;
+    state.compassMapReady = false;
+    els.compassDialog.classList.remove("map-ready");
+  }
+}
+
+function focusCompassMap(locationPoint) {
+  if (!state.compassMapReady) return;
+  state.compassMap.resize();
+  state.compassMap.easeTo({
+    center: [locationPoint.lon, locationPoint.lat],
+    zoom: Math.max(state.compassMap.getZoom(), 12.2),
+    bearing: 0,
+    pitch: 0,
+    duration: 0
+  });
+}
+
+function renderCompassMapMarkers(peaks) {
+  if (!state.compassMapReady) return;
+  clearCompassMarkers();
+
+  peaks.forEach((peak) => {
+    const target = computeTargetForPeak(peak);
+    const markerEl = document.createElement("button");
+    markerEl.type = "button";
+    markerEl.className = `compass-map-marker peak ${target?.visible ? "visible" : ""}`;
+    markerEl.title = peak.name;
+    markerEl.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (target) showCompassPopup(target);
+    });
+    const marker = new window.maplibregl.Marker({ element: markerEl })
+      .setLngLat([peak.lon, peak.lat])
+      .addTo(state.compassMap);
+    state.compassMarkers.push(marker);
+  });
+
+  const locationPoint = getMapLocation();
+  const hereEl = document.createElement("span");
+  hereEl.className = "compass-map-marker here";
+  const hereMarker = new window.maplibregl.Marker({ element: hereEl })
+    .setLngLat([locationPoint.lon, locationPoint.lat])
+    .addTo(state.compassMap);
+  state.compassMarkers.push(hereMarker);
+}
+
+function clearCompassMarkers() {
+  state.compassMarkers.forEach((marker) => marker.remove());
+  state.compassMarkers = [];
+}
+
+function renderCompassFallback(peaks, locationPoint) {
+  const bounds = getBounds([...peaks, locationPoint]);
+  const center = projectToMapFallback(locationPoint, bounds);
 
   els.compassDots.innerHTML = "";
   peaks.forEach((peak) => {
@@ -990,9 +1102,9 @@ function renderCompassMap() {
     dot.style.left = `${position.x}%`;
     dot.style.top = `${position.y}%`;
     dot.title = peak.name;
-    dot.innerHTML = `<span>${peak.name}</span>`;
-    dot.addEventListener("click", () => {
-      if (target) showDetail(target);
+    dot.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (target) showCompassPopup(target, position, "%");
     });
     els.compassDots.appendChild(dot);
   });
@@ -1003,6 +1115,72 @@ function renderCompassMap() {
   here.style.top = `${center.y}%`;
   here.title = locationPoint.label ?? "当前位置";
   els.compassDots.appendChild(here);
+}
+
+function updateCompassHeadingOverlay() {
+  if (!els.compassDialog.open) return;
+
+  const locationPoint = getMapLocation();
+  const heading = normalizeDegrees(state.heading);
+  const center = getCompassScreenCenter(locationPoint);
+  state.compassCenter = center;
+
+  els.compassBearingText.textContent = `${Math.round(heading)}°`;
+  els.compassDial.style.left = center.left;
+  els.compassDial.style.top = center.top;
+  els.compassDial.style.transform = "translate(-50%, -50%)";
+
+  els.compassViewCone.style.left = center.left;
+  els.compassViewCone.style.top = center.top;
+  els.compassViewCone.style.transform = `translate(-50%, -50%) rotate(${heading}deg)`;
+  els.compassHeadingLine.style.left = center.left;
+  els.compassHeadingLine.style.top = center.top;
+  els.compassHeadingLine.style.transform = `translate(-50%, -100%) rotate(${heading}deg)`;
+}
+
+function getCompassScreenCenter(locationPoint) {
+  if (state.compassMapReady) {
+    const point = state.compassMap.project([locationPoint.lon, locationPoint.lat]);
+    return { left: `${point.x}px`, top: `${point.y}px` };
+  }
+
+  const peaks = getDisplayPeaks();
+  const bounds = getBounds([...peaks, locationPoint]);
+  const point = projectToMapFallback(locationPoint, bounds);
+  return { left: `${point.x}%`, top: `${point.y}%` };
+}
+
+function showCompassPopup(target, fallbackPosition = null, fallbackUnit = "px") {
+  state.compassPopupTarget = target;
+  const point = state.compassMapReady
+    ? state.compassMap.project([target.peak.lon, target.peak.lat])
+    : fallbackPosition;
+
+  if (!point) return;
+
+  els.compassPopup.hidden = false;
+  els.compassPopup.style.left = fallbackUnit === "%" ? `${point.x}%` : `${point.x}px`;
+  els.compassPopup.style.top = fallbackUnit === "%" ? `${point.y}%` : `${point.y}px`;
+  els.compassPopup.innerHTML = "";
+
+  const title = document.createElement("strong");
+  title.textContent = target.peak.name;
+  const meta = document.createElement("span");
+  meta.textContent = `${formatDistance(target.distance)} · ${Math.round(target.bearing)}° · ${target.peak.elevation}m`;
+  const action = document.createElement("button");
+  action.type = "button";
+  action.textContent = "详情";
+  action.addEventListener("click", (event) => {
+    event.stopPropagation();
+    showDetail(target);
+  });
+
+  els.compassPopup.append(title, meta, action);
+}
+
+function hideCompassPopup() {
+  state.compassPopupTarget = null;
+  els.compassPopup.hidden = true;
 }
 
 function showDetail(target) {
