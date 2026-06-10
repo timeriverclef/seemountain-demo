@@ -1,7 +1,41 @@
 const DATA_URL = "./data/peaks.json";
 const FALLBACK_IMAGE = "./assets/west-lake-hills-demo.png";
 const FOV_DEGREES = 82;
-const MAX_LABELS = 5;
+const SETTINGS_KEY = "seemountain-settings-v1";
+const PEAK_CACHE_KEY = "seemountain-peak-cache-v1";
+const PEAK_CACHE_TTL = 24 * 60 * 60 * 1000;
+const DEFAULT_SETTINGS = {
+  searchRadiusKm: 20,
+  maxLabels: 5,
+  mapSource: "auto",
+  developerMode: false
+};
+const MAP_SOURCES = {
+  liberty: {
+    label: "OpenFreeMap Liberty",
+    style: "https://tiles.openfreemap.org/styles/liberty"
+  },
+  positron: {
+    label: "OpenFreeMap Positron",
+    style: "https://tiles.openfreemap.org/styles/positron"
+  },
+  osmRaster: {
+    label: "OpenStreetMap Raster",
+    style: {
+      version: 8,
+      sources: {
+        osm: {
+          type: "raster",
+          tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+          tileSize: 256,
+          attribution: "OpenStreetMap"
+        }
+      },
+      layers: [{ id: "osm", type: "raster", source: "osm" }]
+    }
+  }
+};
+const AUTO_MAP_SOURCE_ORDER = ["liberty", "positron", "osmRaster", "local"];
 const COMPASS_POINTS = [
   { label: "子", angle: 0 },
   { label: "癸", angle: 15 },
@@ -47,7 +81,7 @@ const els = {
   startScanBtn: document.querySelector("#startScanBtn"),
   homeUploadBtn: document.querySelector("#homeUploadBtn"),
   homeDemoBtn: document.querySelector("#homeDemoBtn"),
-  homeDevBtn: document.querySelector("#homeDevBtn"),
+  homeSettingsBtn: document.querySelector("#homeSettingsBtn"),
   camera: document.querySelector("#camera"),
   fallback: document.querySelector("#fallbackScene"),
   frozen: document.querySelector("#frozenFrame"),
@@ -56,7 +90,7 @@ const els = {
   radarHeading: document.querySelector(".radar-heading"),
   miniRadarBtn: document.querySelector("#miniRadarBtn"),
   backHomeBtn: document.querySelector("#backHomeBtn"),
-  scannerDevBtn: document.querySelector("#scannerDevBtn"),
+  scannerSettingsBtn: document.querySelector("#scannerSettingsBtn"),
   modePill: document.querySelector("#modePill"),
   scannerViewpoint: document.querySelector("#scannerViewpoint"),
   locationText: document.querySelector("#locationText"),
@@ -71,6 +105,11 @@ const els = {
   devPanel: document.querySelector("#devPanel"),
   devReadout: document.querySelector("#devReadout"),
   closeDevBtn: document.querySelector("#closeDevBtn"),
+  settingsDialog: document.querySelector("#settingsDialog"),
+  closeSettingsBtn: document.querySelector("#closeSettingsBtn"),
+  mapSourceSelect: document.querySelector("#mapSourceSelect"),
+  developerModeToggle: document.querySelector("#developerModeToggle"),
+  clearCacheBtn: document.querySelector("#clearCacheBtn"),
   detailDialog: document.querySelector("#detailDialog"),
   closeDetail: document.querySelector("#closeDetail"),
   detailMeta: document.querySelector("#detailMeta"),
@@ -113,23 +152,29 @@ const state = {
   orientationListening: false,
   map: null,
   mapMarkers: [],
+  mapSourceIndex: 0,
   hiddenTargetCount: 0,
   compassStyle: "standard",
   compassOverlay: false,
   compassMap: null,
   compassMapReady: false,
+  compassMapSourceIndex: 0,
   compassMarkers: [],
   compassPopupTarget: null,
   headingFrame: null,
-  compassCenter: null
+  compassCenter: null,
+  settings: { ...DEFAULT_SETTINGS }
 };
 
 init();
 
 async function init() {
+  loadSettings();
   await loadData();
   bindEvents();
   buildCompassDial();
+  renderSettings();
+  els.devPanel.classList.toggle("active", state.settings.developerMode);
   renderHome();
   renderMapFallback();
   renderTargets();
@@ -163,9 +208,19 @@ function bindEvents() {
     state.uploadContext = "home";
     els.uploadInput.click();
   });
-  els.homeDevBtn.addEventListener("click", toggleDevPanel);
-  els.scannerDevBtn.addEventListener("click", toggleDevPanel);
+  els.homeSettingsBtn.addEventListener("click", openSettings);
+  els.scannerSettingsBtn.addEventListener("click", openSettings);
   els.closeDevBtn.addEventListener("click", closeDevPanel);
+  els.closeSettingsBtn.addEventListener("click", () => els.settingsDialog.close());
+  els.mapSourceSelect.addEventListener("change", () => updateSetting("mapSource", els.mapSourceSelect.value));
+  els.developerModeToggle.addEventListener("change", () => updateSetting("developerMode", els.developerModeToggle.checked));
+  els.clearCacheBtn.addEventListener("click", clearPeakCache);
+  document.querySelectorAll("[data-setting]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const value = Number(button.dataset.value);
+      updateSetting(button.dataset.setting, value);
+    });
+  });
   els.backHomeBtn.addEventListener("click", enterHome);
   els.cameraBtn.addEventListener("click", startCamera);
   els.scanBtn.addEventListener("click", scan);
@@ -217,6 +272,9 @@ function applyInitialRoute() {
       state.compassOverlay = true;
     }
     window.setTimeout(openCompassMap, 500);
+  }
+  if (params.get("settings") === "1") {
+    window.setTimeout(openSettings, 350);
   }
 }
 
@@ -301,7 +359,7 @@ function enterScanner(mode) {
     state.cameraMode = "demo";
     showCameraLayer("fallback");
     setModePill("AR 模式");
-    setSensorPill(state.peaks.length ? "使用当前位置" : "附近暂无开放山峰数据", state.peaks.length ? "ready" : "warn");
+  setSensorPill(state.peaks.length ? "使用当前位置" : state.dataSource, state.peaks.length ? "ready" : "warn");
   }
 
   renderTargets();
@@ -339,9 +397,7 @@ async function startRealExperiment() {
   state.dataSource = "查询 OSM";
   renderHome();
 
-  const nearbyPeaks = await fetchNearbyPeaks(state.location.lat, state.location.lon);
-  state.peaks = nearbyPeaks;
-  state.dataSource = nearbyPeaks.length ? "OSM/Overpass" : "OSM 无结果";
+  await updateNearbyPeaks();
   renderHome();
   renderMapFallback();
   updateMapFocus();
@@ -364,8 +420,7 @@ async function locateFromHome() {
 
   state.dataSource = "查询 OSM";
   renderHome();
-  state.peaks = await fetchNearbyPeaks(state.location.lat, state.location.lon);
-  state.dataSource = state.peaks.length ? "OSM/Overpass" : "OSM 无结果";
+  await updateNearbyPeaks();
   state.hasScanResults = false;
   renderHome();
   renderMapFallback();
@@ -425,8 +480,7 @@ async function requestSensors() {
   if (locationResult.status === "fulfilled" && locationResult.value) {
     state.dataSource = "查询 OSM";
     renderHome();
-    state.peaks = await fetchNearbyPeaks(state.location.lat, state.location.lon);
-    state.dataSource = state.peaks.length ? "OSM/Overpass" : "OSM 无结果";
+    await updateNearbyPeaks();
     state.hasScanResults = false;
   }
   renderHome();
@@ -493,7 +547,43 @@ async function requestOrientation() {
   }
 }
 
-async function fetchNearbyPeaks(lat, lon, radius = 30000) {
+async function updateNearbyPeaks() {
+  if (!state.location) return;
+
+  const radius = state.settings.searchRadiusKm * 1000;
+  const result = await fetchNearbyPeaks(state.location.lat, state.location.lon, radius);
+
+  if (result.peaks.length) {
+    state.peaks = result.peaks;
+    state.dataSource = result.fromCache ? "开放数据暂不可用" : "OSM/Overpass";
+    if (!result.fromCache) {
+      writePeakCache(state.location, radius, result.peaks);
+    }
+    return;
+  }
+
+  if (state.peaks.length) {
+    state.dataSource = "开放数据暂不可用";
+    return;
+  }
+
+  state.peaks = [];
+  state.dataSource = "附近暂无开放山峰数据";
+}
+
+async function fetchNearbyPeaks(lat, lon, radius = state.settings.searchRadiusKm * 1000) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const peaks = await fetchNearbyPeaksOnce(lat, lon, radius);
+    if (peaks.length) return { peaks, fromCache: false };
+    if (attempt < 2) await delay(650 + attempt * 700);
+  }
+
+  const cached = readPeakCache(lat, lon, radius);
+  if (cached.length) return { peaks: cached, fromCache: true };
+  return { peaks: [], fromCache: false };
+}
+
+async function fetchNearbyPeaksOnce(lat, lon, radius) {
   const query = `
     [out:json][timeout:12];
     node(around:${radius},${lat},${lon})["natural"="peak"]["name"];
@@ -534,6 +624,44 @@ async function fetchNearbyPeaks(lat, lon, radius = 30000) {
   }
 }
 
+function readPeakCache(lat, lon, radius) {
+  try {
+    const cache = JSON.parse(localStorage.getItem(PEAK_CACHE_KEY) || "null");
+    if (!cache || !Array.isArray(cache.peaks)) return [];
+    if (Date.now() - cache.savedAt > PEAK_CACHE_TTL) return [];
+    if (Math.abs(cache.radius - radius) > 1) return [];
+    const distance = distanceMeters({ lat, lon }, cache.location);
+    return distance <= Math.max(3000, radius * 0.15) ? cache.peaks : [];
+  } catch {
+    return [];
+  }
+}
+
+function writePeakCache(locationPoint, radius, peaks) {
+  try {
+    localStorage.setItem(
+      PEAK_CACHE_KEY,
+      JSON.stringify({
+        savedAt: Date.now(),
+        location: { lat: locationPoint.lat, lon: locationPoint.lon },
+        radius,
+        peaks
+      })
+    );
+  } catch {
+    // Cache is optional; keep the live result even if storage is unavailable.
+  }
+}
+
+function clearPeakCache() {
+  localStorage.removeItem(PEAK_CACHE_KEY);
+  setSensorPill("山峰缓存已清除", "ready");
+}
+
+function delay(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
 function parseElevation(value) {
   if (!value) return 0;
   const match = String(value).match(/-?\d+(\.\d+)?/);
@@ -567,7 +695,7 @@ function scheduleHeadingRender() {
     if (state.arLive || state.hasScanResults) {
       renderTargets();
     } else {
-      renderRadar(computeTargets().slice(0, MAX_LABELS));
+      renderRadar(computeTargets().slice(0, getMaxLabels()));
     }
     renderDevPanel();
     updateCompassHeadingOverlay();
@@ -592,7 +720,7 @@ function scan() {
     }
     state.hasScanResults = true;
     state.arLive = true;
-    state.lastTargets = computeTargets().slice(0, MAX_LABELS);
+    state.lastTargets = computeTargets().slice(0, getMaxLabels());
     renderTargets();
     renderDevPanel();
     els.scannerScreen.classList.remove("scanning");
@@ -666,7 +794,7 @@ function setSensorPill(text, tone) {
 }
 
 function renderTargets() {
-  const targets = computeTargets().slice(0, MAX_LABELS);
+  const targets = computeTargets().slice(0, getMaxLabels());
   state.lastTargets = state.hasScanResults ? targets : [];
   els.labelLayer.innerHTML = "";
 
@@ -738,7 +866,7 @@ function computeTargets() {
   const visible = measured.filter((item) => item.visible).sort((a, b) => a.score - b.score);
   if (visible.length) return placeLabels(visible);
 
-  if (state.dataSource === "OSM/Overpass" || state.dataSource === "OSM 无结果") {
+  if (["OSM/Overpass", "开放数据暂不可用", "附近暂无开放山峰数据"].includes(state.dataSource)) {
     state.hiddenTargetCount = measured.length;
     return [];
   }
@@ -746,7 +874,7 @@ function computeTargets() {
   return placeLabels(
     measured
       .sort((a, b) => Math.abs(a.relative) - Math.abs(b.relative))
-      .slice(0, MAX_LABELS)
+      .slice(0, getMaxLabels())
       .map((item, index) => ({
         ...item,
         x: 24 + index * 12,
@@ -765,7 +893,7 @@ function placeLabels(targets) {
   });
 
   sorted.forEach((target) => {
-    if (placed.length >= MAX_LABELS) return;
+    if (placed.length >= getMaxLabels()) return;
     for (const offset of offsets) {
       const candidate = { ...target, y: clamp(target.y + offset, 25, 68) };
       const collides = placed.some((item) => labelsCollide(item, candidate));
@@ -869,10 +997,16 @@ function setupMapWhenReady() {
 }
 
 function setupMap() {
+  const source = getMapSource(state.mapSourceIndex);
+  if (!source) {
+    els.mapFallback.classList.add("active");
+    return;
+  }
+
   try {
     state.map = new window.maplibregl.Map({
       container: els.map,
-      style: "https://tiles.openfreemap.org/styles/liberty",
+      style: source.style,
       center: [getActiveViewpoint().lon, getActiveViewpoint().lat],
       zoom: 12.2,
       attributionControl: false,
@@ -885,10 +1019,68 @@ function setupMap() {
     });
 
     state.map.on("error", () => {
-      els.mapFallback.classList.add("active");
+      switchMapSource("home");
     });
   } catch {
-    els.mapFallback.classList.add("active");
+    switchMapSource("home");
+  }
+}
+
+function getMapSource(index = 0) {
+  const queue = getMapSourceQueue();
+  const key = queue[index];
+  if (!key || key === "local") return null;
+  return MAP_SOURCES[key] ?? null;
+}
+
+function getMapSourceQueue() {
+  return state.settings.mapSource === "auto"
+    ? AUTO_MAP_SOURCE_ORDER
+    : [state.settings.mapSource, "local"];
+}
+
+function switchMapSource(target) {
+  const indexKey = target === "compass" ? "compassMapSourceIndex" : "mapSourceIndex";
+  state[indexKey] += 1;
+  const next = getMapSource(state[indexKey]);
+  if (!next) {
+    if (target === "compass") {
+      state.compassMapReady = false;
+      els.compassDialog.classList.remove("map-ready");
+      renderCompassMap();
+    } else {
+      els.mapFallback.classList.add("active");
+    }
+    return;
+  }
+
+  if (target === "compass") {
+    destroyCompassMap();
+    setupCompassMap();
+  } else {
+    destroyHomeMap();
+    setupMap();
+  }
+}
+
+function reloadMaps() {
+  state.mapSourceIndex = 0;
+  state.compassMapSourceIndex = 0;
+  destroyHomeMap();
+  destroyCompassMap();
+  els.mapFallback.classList.add("active");
+  setupMapWhenReady();
+  if (els.compassDialog.open) {
+    setupCompassMapWhenReady();
+    renderCompassMap();
+  }
+}
+
+function destroyHomeMap() {
+  clearMapMarkers();
+  if (state.map) {
+    state.map.remove();
+    state.map = null;
   }
 }
 
@@ -930,29 +1122,45 @@ function updateMapFocus() {
 
 function buildCompassDial() {
   const cardinal = [
-    { label: "北", angle: 0 },
-    { label: "东", angle: 90 },
-    { label: "南", angle: 180 },
-    { label: "西", angle: 270 }
+    { label: "北", angle: 0, stem: "坎" },
+    { label: "东", angle: 90, stem: "震" },
+    { label: "南", angle: 180, stem: "离" },
+    { label: "西", angle: 270, stem: "兑" }
   ];
   const secondary = [
-    { label: "东北", angle: 45 },
-    { label: "东南", angle: 135 },
-    { label: "西南", angle: 225 },
-    { label: "西北", angle: 315 }
+    { label: "东北", angle: 45, stem: "艮" },
+    { label: "东南", angle: 135, stem: "巽" },
+    { label: "西南", angle: 225, stem: "坤" },
+    { label: "西北", angle: 315, stem: "乾" }
   ];
+  const ticks = Array.from({ length: 72 }, (_, index) => {
+    const angle = index * 5;
+    const className = angle % 45 === 0 ? "dial-tick big" : angle % 15 === 0 ? "dial-tick medium" : "dial-tick";
+    return `<i class="${className}" style="--angle:${angle}deg"></i>`;
+  });
   const labels = [
-    ...cardinal.map((item) => ({ ...item, className: "major" })),
-    ...secondary.map((item) => ({ ...item, className: "minor" })),
-    ...COMPASS_POINTS.map((item) => ({ ...item, className: "fengshui-label" }))
+    ...cardinal.map((item) => ({ ...item, className: "dial-label major", radius: 34 })),
+    ...secondary.map((item) => ({ ...item, className: "dial-label minor", radius: 34 })),
+    ...COMPASS_POINTS.map((item) => ({ ...item, className: "dial-label mountain", radius: 43 }))
   ];
-
-  els.compassDial.innerHTML = labels
+  const labelMarkup = labels
     .map((item) => {
-      const point = polarPercent(item.angle, item.className === "fengshui-label" ? 42 : 46);
-      return `<span class="${item.className}" style="left:${point.x}%;top:${point.y}%">${item.label}</span>`;
+      const point = polarPercent(item.angle, item.radius);
+      const text = item.stem ? `${item.label}<small>${item.stem}</small>` : item.label;
+      return `<span class="${item.className}" style="left:${point.x}%;top:${point.y}%">${text}</span>`;
     })
     .join("");
+
+  els.compassDial.innerHTML = `
+    <div class="dial-cross" aria-hidden="true"></div>
+    <div class="dial-ring ring-outer" aria-hidden="true"></div>
+    <div class="dial-ring ring-mountain" aria-hidden="true"></div>
+    <div class="dial-ring ring-bagua" aria-hidden="true"></div>
+    <div class="dial-ring ring-center" aria-hidden="true"></div>
+    ${ticks.join("")}
+    ${labelMarkup}
+    <span class="dial-center">天池</span>
+  `;
 }
 
 function openCompassMap() {
@@ -970,10 +1178,14 @@ function toggleCompassOverlay() {
 
 function setCompassStyle(style) {
   state.compassStyle = style === "fengshui" ? "fengshui" : "standard";
+  updateCompassStyleButtons();
+  renderCompassMap();
+}
+
+function updateCompassStyleButtons() {
   document.querySelectorAll("[data-compass-style]").forEach((button) => {
     button.classList.toggle("active", button.dataset.compassStyle === state.compassStyle);
   });
-  renderCompassMap();
 }
 
 function setupCompassMapWhenReady() {
@@ -994,6 +1206,7 @@ function renderCompassMap() {
   els.compassSourceText.textContent = state.location ? state.dataSource : "西湖演示";
   els.toggleCompassOverlayBtn.classList.toggle("active", state.compassOverlay);
   els.toggleCompassOverlayBtn.textContent = state.compassOverlay ? "隐藏叠层" : "罗盘叠层";
+  updateCompassStyleButtons();
   els.compassDial.className = `compass-dial ${state.compassStyle} ${state.compassOverlay ? "active" : ""}`;
 
   if (state.compassMapReady) {
@@ -1008,12 +1221,19 @@ function renderCompassMap() {
 
 function setupCompassMap() {
   if (state.compassMap || !window.maplibregl) return;
+  const source = getMapSource(state.compassMapSourceIndex);
+  if (!source) {
+    state.compassMapReady = false;
+    els.compassDialog.classList.remove("map-ready");
+    renderCompassMap();
+    return;
+  }
 
   const center = getMapLocation();
   try {
     state.compassMap = new window.maplibregl.Map({
       container: els.compassMap,
-      style: "https://tiles.openfreemap.org/styles/liberty",
+      style: source.style,
       center: [center.lon, center.lat],
       zoom: 12.8,
       attributionControl: false,
@@ -1032,8 +1252,7 @@ function setupCompassMap() {
     });
     state.compassMap.on("click", hideCompassPopup);
     state.compassMap.on("error", () => {
-      state.compassMapReady = false;
-      els.compassDialog.classList.remove("map-ready");
+      switchMapSource("compass");
     });
   } catch {
     state.compassMap = null;
@@ -1086,6 +1305,16 @@ function renderCompassMapMarkers(peaks) {
 function clearCompassMarkers() {
   state.compassMarkers.forEach((marker) => marker.remove());
   state.compassMarkers = [];
+}
+
+function destroyCompassMap() {
+  clearCompassMarkers();
+  state.compassMapReady = false;
+  if (state.compassMap) {
+    state.compassMap.remove();
+    state.compassMap = null;
+  }
+  els.compassDialog.classList.remove("map-ready");
 }
 
 function renderCompassFallback(peaks, locationPoint) {
@@ -1198,17 +1427,89 @@ function showDetail(target) {
   }
 }
 
+function loadSettings() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
+    state.settings = {
+      ...DEFAULT_SETTINGS,
+      ...saved,
+      searchRadiusKm: [10, 20, 30, 50].includes(Number(saved.searchRadiusKm)) ? Number(saved.searchRadiusKm) : 20,
+      maxLabels: [3, 5, 8].includes(Number(saved.maxLabels)) ? Number(saved.maxLabels) : 5,
+      mapSource: ["auto", "liberty", "positron", "osmRaster", "local"].includes(saved.mapSource) ? saved.mapSource : "auto",
+      developerMode: Boolean(saved.developerMode)
+    };
+  } catch {
+    state.settings = { ...DEFAULT_SETTINGS };
+  }
+}
+
+function saveSettings() {
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(state.settings));
+}
+
+function openSettings() {
+  renderSettings();
+  if (!els.settingsDialog.open) {
+    els.settingsDialog.showModal();
+  }
+}
+
+function renderSettings() {
+  document.querySelectorAll("[data-setting]").forEach((button) => {
+    const current = state.settings[button.dataset.setting];
+    button.classList.toggle("active", String(current) === button.dataset.value);
+  });
+  els.mapSourceSelect.value = state.settings.mapSource;
+  els.developerModeToggle.checked = state.settings.developerMode;
+}
+
+function updateSetting(key, value) {
+  state.settings[key] = value;
+  saveSettings();
+  renderSettings();
+
+  if (key === "developerMode") {
+    els.devPanel.classList.toggle("active", Boolean(value));
+    renderDevPanel();
+  }
+
+  if (key === "maxLabels") {
+    renderTargets();
+    renderDevPanel();
+  }
+
+  if (key === "mapSource") {
+    reloadMaps();
+  }
+
+  if (key === "searchRadiusKm") {
+    setSensorPill(`搜索范围 ${value}km`, "ready");
+  }
+}
+
+function getMaxLabels() {
+  return state.settings.maxLabels;
+}
+
 function toggleDevPanel() {
   els.devPanel.classList.toggle("active");
+  state.settings.developerMode = els.devPanel.classList.contains("active");
+  saveSettings();
+  renderSettings();
   renderDevPanel();
 }
 
 function closeDevPanel() {
   els.devPanel.classList.remove("active");
+  if (state.settings.developerMode) {
+    state.settings.developerMode = false;
+    saveSettings();
+    renderSettings();
+  }
 }
 
 function renderDevPanel() {
-  const targets = computeTargets().slice(0, MAX_LABELS);
+  const targets = computeTargets().slice(0, getMaxLabels());
   const rows = [
     ["页面", state.screen === "home" ? "地图入口" : "扫描页"],
     ["观景点", getActiveViewpoint()?.name ?? "-"],
