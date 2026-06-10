@@ -18,8 +18,8 @@
             <h1>见山</h1>
             <p class="home-copy">定位后获取附近山峰，西湖数据仅作为演示兜底</p>
           </div>
-          <button id="homeDevBtn" class="icon-btn" type="button" title="开发者模式" aria-label="开发者模式">
-            <span aria-hidden="true">⌘</span>
+          <button id="homeSettingsBtn" class="icon-btn" type="button" title="设置" aria-label="设置">
+            <span aria-hidden="true">⚙</span>
           </button>
         </header>
 
@@ -97,8 +97,8 @@
             <span id="modePill" class="status-pill">演示模式</span>
             <strong id="scannerViewpoint">苏堤北段</strong>
           </div>
-          <button id="scannerDevBtn" class="icon-btn glass" type="button" title="开发者模式" aria-label="开发者模式">
-            <span aria-hidden="true">⌘</span>
+          <button id="scannerSettingsBtn" class="icon-btn glass" type="button" title="设置" aria-label="设置">
+            <span aria-hidden="true">⚙</span>
           </button>
         </header>
 
@@ -162,6 +162,58 @@
         </div>
         <div id="devReadout" class="dev-readout"></div>
       </aside>
+
+      <dialog id="settingsDialog" class="settings-dialog" aria-labelledby="settingsTitle">
+        <section class="settings-sheet">
+          <header class="settings-head">
+            <div>
+              <span class="eyebrow">Settings</span>
+              <h2 id="settingsTitle">设置</h2>
+            </div>
+            <button id="closeSettingsBtn" class="icon-btn" type="button" aria-label="关闭设置">×</button>
+          </header>
+
+          <div class="setting-group">
+            <span class="field-label">山峰搜索范围</span>
+            <div class="segmented-control" data-setting-group="searchRadiusKm">
+              <button type="button" data-setting="searchRadiusKm" data-value="10">10km</button>
+              <button type="button" data-setting="searchRadiusKm" data-value="20">20km</button>
+              <button type="button" data-setting="searchRadiusKm" data-value="30">30km</button>
+              <button type="button" data-setting="searchRadiusKm" data-value="50">50km</button>
+            </div>
+          </div>
+
+          <div class="setting-group">
+            <span class="field-label">AR 最大标签数</span>
+            <div class="segmented-control" data-setting-group="maxLabels">
+              <button type="button" data-setting="maxLabels" data-value="3">3</button>
+              <button type="button" data-setting="maxLabels" data-value="5">5</button>
+              <button type="button" data-setting="maxLabels" data-value="8">8</button>
+            </div>
+          </div>
+
+          <div class="setting-group">
+            <span class="field-label">地图源</span>
+            <select id="mapSourceSelect" class="setting-select" aria-label="地图源">
+              <option value="auto">自动</option>
+              <option value="liberty">OpenFreeMap Liberty</option>
+              <option value="positron">OpenFreeMap Positron</option>
+              <option value="osmRaster">OpenStreetMap Raster</option>
+              <option value="local">本地示意图</option>
+            </select>
+          </div>
+
+          <label class="setting-toggle">
+            <span>
+              <strong>开发者模式</strong>
+              <small>显示定位、方位、FOV 和可信度公式</small>
+            </span>
+            <input id="developerModeToggle" type="checkbox" />
+          </label>
+
+          <button id="clearCacheBtn" class="secondary-btn setting-action" type="button">清除山峰缓存</button>
+        </section>
+      </dialog>
 
       <dialog id="detailDialog" class="detail-dialog" aria-labelledby="detailTitle">
         <button id="closeDetail" class="close-btn" type="button" aria-label="关闭">×</button>
