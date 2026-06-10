@@ -844,6 +844,103 @@ button {
   overflow-wrap: anywhere;
 }
 
+.settings-dialog {
+  position: fixed;
+  top: auto;
+  right: 32px;
+  bottom: 0;
+  left: 0;
+  width: auto;
+  max-width: none;
+  max-height: 74dvh;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+}
+
+.settings-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.settings-sheet {
+  max-height: 74dvh;
+  overflow: auto;
+  padding: 18px 16px max(18px, env(safe-area-inset-bottom));
+  border: 1px solid var(--line);
+  border-radius: 8px 8px 0 0;
+  background: rgba(13, 19, 16, 0.96);
+  box-shadow: var(--shadow);
+}
+
+.settings-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.settings-head h2 {
+  margin: 5px 0 0;
+  font-size: 24px;
+}
+
+.setting-group {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.setting-group .segmented-control {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.setting-select {
+  min-height: 46px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  padding: 0 12px;
+}
+
+.setting-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.setting-toggle strong,
+.setting-toggle small {
+  display: block;
+}
+
+.setting-toggle small {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.setting-toggle input {
+  width: 22px;
+  height: 22px;
+  accent-color: var(--green);
+}
+
+.setting-action {
+  width: 100%;
+  margin-top: 14px;
+  color: var(--text);
+}
+
 .detail-dialog {
   position: fixed;
   top: auto;
@@ -1019,14 +1116,14 @@ button {
   position: absolute;
   z-index: 7;
   display: none;
-  width: min(82vw, 340px);
-  height: min(82vw, 340px);
-  border: 1px solid rgba(244, 247, 237, 0.22);
+  width: min(88vw, 368px);
+  height: min(88vw, 368px);
+  border: 1px solid rgba(244, 247, 237, 0.24);
   border-radius: 50%;
   background:
-    repeating-conic-gradient(rgba(244, 247, 237, 0.22) 0deg 1deg, transparent 1deg 15deg),
-    radial-gradient(circle, transparent 0 36%, rgba(15, 22, 18, 0.34) 37% 38%, transparent 39% 56%, rgba(15, 22, 18, 0.42) 57% 58%, transparent 59%);
-  opacity: 0.86;
+    repeating-conic-gradient(rgba(244, 247, 237, 0.2) 0deg 1deg, transparent 1deg 15deg),
+    radial-gradient(circle, transparent 0 33%, rgba(15, 22, 18, 0.34) 34% 35%, transparent 36% 57%, rgba(15, 22, 18, 0.42) 58% 59%, transparent 60%);
+  opacity: 0.9;
   pointer-events: none;
 }
 
@@ -1035,37 +1132,160 @@ button {
 }
 
 .compass-dial.fengshui {
-  border-color: rgba(240, 184, 77, 0.44);
+  border: 2px solid rgba(230, 184, 92, 0.58);
   background:
-    repeating-conic-gradient(rgba(240, 184, 77, 0.32) 0deg 1deg, transparent 1deg 7.5deg),
-    radial-gradient(circle, transparent 0 24%, rgba(240, 184, 77, 0.24) 25% 26%, transparent 27% 42%, rgba(244, 247, 237, 0.18) 43% 44%, transparent 45% 58%, rgba(240, 184, 77, 0.26) 59% 60%, transparent 61%),
-    rgba(19, 18, 12, 0.2);
+    repeating-conic-gradient(from -7.5deg, rgba(231, 188, 93, 0.28) 0deg 0.8deg, transparent 0.8deg 15deg),
+    repeating-conic-gradient(rgba(244, 247, 237, 0.12) 0deg 0.28deg, transparent 0.28deg 5deg),
+    radial-gradient(circle, rgba(10, 15, 13, 0.08) 0 17%, rgba(231, 188, 93, 0.22) 17.4% 17.9%, transparent 18.2% 30%, rgba(231, 188, 93, 0.3) 30.4% 31%, transparent 31.4% 39.5%, rgba(244, 247, 237, 0.2) 40% 40.6%, transparent 41% 48%, rgba(231, 188, 93, 0.34) 48.4% 49%, transparent 49.5% 58%, rgba(231, 188, 93, 0.34) 58.5% 59.2%, transparent 59.6%),
+    rgba(25, 20, 12, 0.18);
+  box-shadow:
+    inset 0 0 0 5px rgba(12, 16, 12, 0.2),
+    inset 0 0 42px rgba(231, 188, 93, 0.12),
+    0 18px 46px rgba(0, 0, 0, 0.24);
 }
 
-.compass-dial span {
+.dial-label {
   position: absolute;
   color: rgba(244, 247, 237, 0.78);
   font-size: 11px;
   font-weight: 800;
+  line-height: 1;
+  text-align: center;
   transform: translate(-50%, -50%);
 }
 
-.compass-dial .major {
+.dial-label small {
+  display: block;
+  margin-top: 2px;
+  font-size: 9px;
+  font-weight: 700;
+  opacity: 0.72;
+}
+
+.compass-dial .dial-label.major {
   color: #f6ffd8;
   font-size: 15px;
 }
 
-.compass-dial .minor {
+.compass-dial .dial-label.minor {
   font-size: 10px;
 }
 
-.compass-dial.standard .fengshui-label {
+.compass-dial.standard .dial-label.mountain,
+.compass-dial.standard .dial-ring,
+.compass-dial.standard .dial-tick,
+.compass-dial.standard .dial-cross,
+.compass-dial.standard .dial-center {
   display: none;
 }
 
-.compass-dial.fengshui .fengshui-label {
-  color: #ffd990;
+.compass-dial.fengshui .dial-label.major {
+  color: #fff5d0;
+  font-size: 13px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+.compass-dial.fengshui .dial-label.minor {
+  color: rgba(255, 236, 180, 0.9);
+  font-size: 10px;
+}
+
+.compass-dial.fengshui .dial-label.mountain {
+  color: #f4d17f;
   font-size: 12px;
+  font-weight: 900;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+.dial-ring {
+  position: absolute;
+  inset: 50%;
+  border: 1px solid rgba(231, 188, 93, 0.28);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.ring-outer {
+  width: 96%;
+  height: 96%;
+}
+
+.ring-mountain {
+  width: 84%;
+  height: 84%;
+}
+
+.ring-bagua {
+  width: 66%;
+  height: 66%;
+}
+
+.ring-center {
+  width: 28%;
+  height: 28%;
+  background: radial-gradient(circle, rgba(240, 184, 77, 0.22), rgba(12, 18, 14, 0.12));
+}
+
+.dial-cross::before,
+.dial-cross::after {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  background: rgba(198, 55, 45, 0.72);
+  box-shadow: 0 0 8px rgba(198, 55, 45, 0.24);
+}
+
+.dial-cross::before {
+  top: 3%;
+  bottom: 3%;
+  left: 50%;
+  width: 1px;
+}
+
+.dial-cross::after {
+  right: 3%;
+  left: 3%;
+  top: 50%;
+  height: 1px;
+}
+
+.dial-tick {
+  position: absolute;
+  top: 3.5%;
+  left: 50%;
+  width: 1px;
+  height: 7px;
+  background: rgba(244, 247, 237, 0.24);
+  transform: translateX(-50%) rotate(var(--angle));
+  transform-origin: 50% min(41vw, 170px);
+}
+
+.dial-tick.medium {
+  height: 12px;
+  background: rgba(231, 188, 93, 0.5);
+}
+
+.dial-tick.big {
+  width: 2px;
+  height: 16px;
+  background: rgba(255, 238, 177, 0.78);
+}
+
+.dial-center {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border: 1px solid rgba(231, 188, 93, 0.44);
+  border-radius: 50%;
+  background: rgba(10, 15, 13, 0.52);
+  color: #ffe7a5;
+  font-size: 11px;
+  font-weight: 900;
+  transform: translate(-50%, -50%);
 }
 
 .compass-dots {
