@@ -39,8 +39,11 @@ $branchExists = $branchCheck.ExitCode -eq 0
 $files = Get-ChildItem -File -Recurse -Force |
   Where-Object {
     $relative = Resolve-Path -LiteralPath $_.FullName -Relative
-    $relative -notmatch '^\\.git(\\|$)' -and
-    $relative -notmatch '^\\.deploy-api-tmp(\\|$)' -and
+    $normalized = $relative -replace '/', '\'
+    $normalized -notmatch '^\.\\\.git(\\|$)' -and
+    $normalized -notmatch '^\.git(\\|$)' -and
+    $normalized -notmatch '^\.\\\.deploy-api-tmp(\\|$)' -and
+    $normalized -notmatch '^\.deploy-api-tmp(\\|$)' -and
     $_.Name -notlike 'qa-*.png' -and
     $_.Name -notin @('token.txt', 'github_token.txt')
   } |
