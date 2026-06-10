@@ -16,7 +16,7 @@
           <div>
             <p class="eyebrow">SeeMountain Web Demo</p>
             <h1>见山</h1>
-          <p class="home-copy">定位后获取附近山峰，西湖数据仅作为演示兜底</p>
+            <p class="home-copy">定位后获取附近山峰，西湖数据仅作为演示兜底</p>
           </div>
           <button id="homeDevBtn" class="icon-btn" type="button" title="开发者模式" aria-label="开发者模式">
             <span aria-hidden="true">⌘</span>
@@ -31,6 +31,9 @@
             <div class="lake-shape"></div>
             <div id="mapFallbackDots" class="map-dots"></div>
           </div>
+          <button id="homeLocateBtn" class="map-locate-btn" type="button" title="定位当前位置" aria-label="定位当前位置">
+            <span aria-hidden="true">⌖</span>
+          </button>
           <div class="map-overlay">
             <div>
               <span class="field-label">实验位置</span>
@@ -45,8 +48,8 @@
           <div class="route-main">
             <span class="route-dot"></span>
             <div>
-              <h2 id="routeTitle">真实实验</h2>
-              <p id="routeDescription">点击真实实验后请求定位，并尝试从开放地图数据中获取附近山峰。</p>
+              <h2 id="routeTitle">AR 模式</h2>
+              <p id="routeDescription">默认显示西湖演示位置；点击 AR 模式或定位按钮后获取实际位置和附近山峰。</p>
             </div>
           </div>
           <div class="metric-grid">
@@ -68,7 +71,7 @@
         <section class="home-actions" aria-label="开始体验">
           <button id="startScanBtn" class="primary-btn" type="button">
             <span aria-hidden="true">⌖</span>
-            <strong>真实实验</strong>
+            <strong>AR 模式</strong>
           </button>
           <div class="secondary-actions">
             <button id="homeUploadBtn" class="secondary-btn" type="button">上传画面</button>
@@ -105,13 +108,13 @@
           <span></span>
         </div>
 
-        <aside class="mini-radar" aria-label="山峰雷达">
+        <button id="miniRadarBtn" class="mini-radar" type="button" aria-label="打开罗盘地图">
           <div class="radar-ring">
             <span class="radar-n">N</span>
             <i class="radar-heading"></i>
             <div id="radarDots"></div>
           </div>
-        </aside>
+        </button>
 
         <section class="scanner-sheet" aria-label="扫描控制">
           <div class="scanner-status">
@@ -180,6 +183,44 @@
         </dl>
         <p id="detailIntro" class="detail-copy"></p>
         <p id="detailRoute" class="detail-route"></p>
+      </dialog>
+
+      <dialog id="compassDialog" class="compass-dialog" aria-labelledby="compassTitle">
+        <header class="compass-head">
+          <div>
+            <span class="eyebrow">Compass Map</span>
+            <h2 id="compassTitle">设备朝向</h2>
+          </div>
+          <button id="closeCompassBtn" class="icon-btn" type="button" aria-label="关闭罗盘地图">×</button>
+        </header>
+
+        <section class="compass-map" aria-label="罗盘地图">
+          <div class="compass-map-base">
+            <div class="terrain terrain-a"></div>
+            <div class="terrain terrain-b"></div>
+            <div class="lake-shape"></div>
+          </div>
+          <div id="compassViewCone" class="compass-view-cone"></div>
+          <div id="compassHeadingLine" class="compass-heading-line"></div>
+          <div id="compassDial" class="compass-dial standard" aria-hidden="true"></div>
+          <div id="compassDots" class="compass-dots"></div>
+        </section>
+
+        <section class="compass-controls" aria-label="罗盘设置">
+          <div>
+            <span class="field-label">朝向</span>
+            <strong id="compassBearingText">247°</strong>
+          </div>
+          <div>
+            <span class="field-label">数据</span>
+            <strong id="compassSourceText">西湖演示</strong>
+          </div>
+          <button id="toggleCompassOverlayBtn" class="secondary-btn" type="button">罗盘叠层</button>
+          <div class="segmented-control" aria-label="罗盘样式">
+            <button class="active" type="button" data-compass-style="standard">标准</button>
+            <button type="button" data-compass-style="fengshui">风水盘</button>
+          </div>
+        </section>
       </dialog>
 
       <input id="uploadInput" class="visually-hidden" type="file" accept="image/*" />
