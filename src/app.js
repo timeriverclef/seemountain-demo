@@ -5,7 +5,7 @@ const SETTINGS_KEY = "seemountain-settings-v1";
 const PEAK_CACHE_KEY = "seemountain-peak-cache-v1";
 const PEAK_CACHE_TTL = 24 * 60 * 60 * 1000;
 const DEFAULT_SETTINGS = {
-  searchRadiusKm: 20,
+  searchRadiusKm: 10,
   maxLabels: 5,
   mapSource: "auto",
   developerMode: false
@@ -122,6 +122,7 @@ const els = {
   compassDialog: document.querySelector("#compassDialog"),
   closeCompassBtn: document.querySelector("#closeCompassBtn"),
   compassMap: document.querySelector("#compassMap"),
+  compassDistanceRings: document.querySelector("#compassDistanceRings"),
   compassViewCone: document.querySelector("#compassViewCone"),
   compassHeadingLine: document.querySelector("#compassHeadingLine"),
   compassDial: document.querySelector("#compassDial"),
@@ -129,6 +130,8 @@ const els = {
   compassPopup: document.querySelector("#compassPopup"),
   compassBearingText: document.querySelector("#compassBearingText"),
   compassSourceText: document.querySelector("#compassSourceText"),
+  compassModeText: document.querySelector("#compassModeText"),
+  compassRadiusText: document.querySelector("#compassRadiusText"),
   toggleCompassOverlayBtn: document.querySelector("#toggleCompassOverlayBtn")
 };
 
@@ -155,7 +158,7 @@ const state = {
   mapSourceIndex: 0,
   hiddenTargetCount: 0,
   compassStyle: "standard",
-  compassOverlay: false,
+  compassOverlay: true,
   compassMap: null,
   compassMapReady: false,
   compassMapSourceIndex: 0,
@@ -1122,16 +1125,16 @@ function updateMapFocus() {
 
 function buildCompassDial() {
   const cardinal = [
-    { label: "北", angle: 0, stem: "坎" },
-    { label: "东", angle: 90, stem: "震" },
-    { label: "南", angle: 180, stem: "离" },
-    { label: "西", angle: 270, stem: "兑" }
+    { label: "N", angle: 0, stem: "0°" },
+    { label: "E", angle: 90, stem: "90°" },
+    { label: "S", angle: 180, stem: "180°" },
+    { label: "W", angle: 270, stem: "270°" }
   ];
   const secondary = [
-    { label: "东北", angle: 45, stem: "艮" },
-    { label: "东南", angle: 135, stem: "巽" },
-    { label: "西南", angle: 225, stem: "坤" },
-    { label: "西北", angle: 315, stem: "乾" }
+    { label: "NE", angle: 45, stem: "45°" },
+    { label: "SE", angle: 135, stem: "135°" },
+    { label: "SW", angle: 225, stem: "225°" },
+    { label: "NW", angle: 315, stem: "315°" }
   ];
   const ticks = Array.from({ length: 72 }, (_, index) => {
     const angle = index * 5;
@@ -1154,12 +1157,14 @@ function buildCompassDial() {
   els.compassDial.innerHTML = `
     <div class="dial-cross" aria-hidden="true"></div>
     <div class="dial-ring ring-outer" aria-hidden="true"></div>
+    <div class="dial-ring ring-nav-mid" aria-hidden="true"></div>
+    <div class="dial-ring ring-nav-inner" aria-hidden="true"></div>
     <div class="dial-ring ring-mountain" aria-hidden="true"></div>
     <div class="dial-ring ring-bagua" aria-hidden="true"></div>
     <div class="dial-ring ring-center" aria-hidden="true"></div>
     ${ticks.join("")}
     ${labelMarkup}
-    <span class="dial-center">天池</span>
+    <span class="dial-center"><b>82°</b><small>FOV</small></span>
   `;
 }
 
@@ -1204,6 +1209,8 @@ function renderCompassMap() {
 
   els.compassBearingText.textContent = `${Math.round(heading)}°`;
   els.compassSourceText.textContent = state.location ? state.dataSource : "西湖演示";
+  els.compassModeText.textContent = getCompassModeText();
+  els.compassRadiusText.textContent = `${state.settings.searchRadiusKm}km · ${FOV_DEGREES}°`;
   els.toggleCompassOverlayBtn.classList.toggle("active", state.compassOverlay);
   els.toggleCompassOverlayBtn.textContent = state.compassOverlay ? "隐藏叠层" : "罗盘叠层";
   updateCompassStyleButtons();
@@ -1365,6 +1372,57 @@ function updateCompassHeadingOverlay() {
   els.compassHeadingLine.style.left = center.left;
   els.compassHeadingLine.style.top = center.top;
   els.compassHeadingLine.style.transform = `translate(-50%, -100%) rotate(${heading}deg)`;
+  renderCompassDistanceRings(locationPoint, center);
+}
+
+function renderCompassDistanceRings(locationPoint, center) {
+  if (!els.compassDistanceRings) return;
+
+  const ringDistances = getCompassRingDistances();
+  const maxDistance = ringDistances[ringDistances.length - 1] * 1000;
+  const maxRadius = getCompassMaxRingRadius(locationPoint, maxDistance);
+
+  els.compassDistanceRings.innerHTML = ringDistances
+    .map((distanceKm, index) => {
+      const ratio = Math.sqrt(distanceKm / ringDistances[ringDistances.length - 1]);
+      const radius = Math.max(28, Math.round(maxRadius * ratio));
+      const labelY = 38 + index * 12;
+      return `
+        <span class="distance-ring" style="left:${center.left};top:${center.top};width:${radius * 2}px;height:${radius * 2}px;--label-y:${labelY}%">
+          <em>${distanceKm}km</em>
+        </span>
+      `;
+    })
+    .join("");
+}
+
+function getCompassRingDistances() {
+  const radius = state.settings.searchRadiusKm;
+  if (radius <= 3) return [1, 2, 3];
+  if (radius <= 5) return [1, 3, 5];
+  if (radius <= 10) return [3, 5, 10];
+  return [5, 10, 30];
+}
+
+function getCompassMaxRingRadius(locationPoint, maxDistance) {
+  const mapRect = els.compassMap.getBoundingClientRect();
+  const maxAllowedRadius = Math.min(mapRect.width, mapRect.height) * 0.42;
+
+  if (state.compassMapReady) {
+    const centerPoint = state.compassMap.project([locationPoint.lon, locationPoint.lat]);
+    const eastPoint = destinationPoint(locationPoint, 90, maxDistance);
+    const projectedEast = state.compassMap.project([eastPoint.lon, eastPoint.lat]);
+    const projectedRadius = Math.abs(projectedEast.x - centerPoint.x);
+    return clamp(projectedRadius, 72, maxAllowedRadius);
+  }
+
+  return clamp(window.innerWidth * 0.35, 92, maxAllowedRadius);
+}
+
+function getCompassModeText() {
+  if (!state.location) return "演示朝向";
+  if (state.orientationListening) return "设备罗盘";
+  return "手动校准";
 }
 
 function getCompassScreenCenter(locationPoint) {
@@ -1433,7 +1491,7 @@ function loadSettings() {
     state.settings = {
       ...DEFAULT_SETTINGS,
       ...saved,
-      searchRadiusKm: [10, 20, 30, 50].includes(Number(saved.searchRadiusKm)) ? Number(saved.searchRadiusKm) : 20,
+      searchRadiusKm: [3, 5, 10, 30].includes(Number(saved.searchRadiusKm)) ? Number(saved.searchRadiusKm) : 10,
       maxLabels: [3, 5, 8].includes(Number(saved.maxLabels)) ? Number(saved.maxLabels) : 5,
       mapSource: ["auto", "liberty", "positron", "osmRaster", "local"].includes(saved.mapSource) ? saved.mapSource : "auto",
       developerMode: Boolean(saved.developerMode)
@@ -1601,6 +1659,29 @@ function bearingDegrees(a, b) {
     Math.cos(lat1) * Math.sin(lat2) -
     Math.sin(lat1) * Math.cos(lat2) * Math.cos(lonDelta);
   return normalizeDegrees(toDegrees(Math.atan2(y, x)));
+}
+
+function destinationPoint(point, bearing, distance) {
+  const earthRadius = 6371000;
+  const angularDistance = distance / earthRadius;
+  const bearingRad = toRadians(bearing);
+  const lat1 = toRadians(point.lat);
+  const lon1 = toRadians(point.lon);
+  const lat2 = Math.asin(
+    Math.sin(lat1) * Math.cos(angularDistance) +
+      Math.cos(lat1) * Math.sin(angularDistance) * Math.cos(bearingRad)
+  );
+  const lon2 =
+    lon1 +
+    Math.atan2(
+      Math.sin(bearingRad) * Math.sin(angularDistance) * Math.cos(lat1),
+      Math.cos(angularDistance) - Math.sin(lat1) * Math.sin(lat2)
+    );
+
+  return {
+    lat: toDegrees(lat2),
+    lon: ((toDegrees(lon2) + 540) % 360) - 180
+  };
 }
 
 function smoothHeading(previous, next, weight) {

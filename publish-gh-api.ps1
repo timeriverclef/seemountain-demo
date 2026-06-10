@@ -16,6 +16,7 @@ if (-not (Test-Path $GhPath)) {
 
 $tmp = Join-Path (Get-Location) ".deploy-api-tmp"
 New-Item -ItemType Directory -Force -Path $tmp | Out-Null
+$root = (Get-Location).Path.TrimEnd('\')
 
 function Invoke-GhApiText {
   param([string]$ApiPath)
@@ -38,12 +39,9 @@ $branchExists = $branchCheck.ExitCode -eq 0
 
 $files = Get-ChildItem -File -Recurse -Force |
   Where-Object {
-    $relative = Resolve-Path -LiteralPath $_.FullName -Relative
-    $normalized = $relative -replace '/', '\'
-    $normalized -notmatch '^\.\\\.git(\\|$)' -and
-    $normalized -notmatch '^\.git(\\|$)' -and
-    $normalized -notmatch '^\.\\\.deploy-api-tmp(\\|$)' -and
-    $normalized -notmatch '^\.deploy-api-tmp(\\|$)' -and
+    $fullName = $_.FullName
+    $fullName -notlike "$root\.git\*" -and
+    $fullName -notlike "$root\.deploy-api-tmp\*" -and
     $_.Name -notlike 'qa-*.png' -and
     $_.Name -notin @('token.txt', 'github_token.txt')
   } |
@@ -51,8 +49,8 @@ $files = Get-ChildItem -File -Recurse -Force |
 
 $count = 0
 foreach ($file in $files) {
-  $relative = Resolve-Path -LiteralPath $file.FullName -Relative
-  $path = $relative.TrimStart('.', '\') -replace '\\', '/'
+  $relative = $file.FullName.Substring($root.Length + 1)
+  $path = $relative -replace '\\', '/'
   $bytes = [System.IO.File]::ReadAllBytes($file.FullName)
   $content = [Convert]::ToBase64String($bytes)
 

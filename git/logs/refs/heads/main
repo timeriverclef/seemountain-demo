@@ -1,3 +1,0 @@
-0000000000000000000000000000000000000000 9d5f22a154f13c3338fdd889bcc6bcadeaf60ddc timeriverclef <92632103+timeriverclef@users.noreply.github.com> 1780993209 +0800	commit (initial): Deploy SeeMountain static web demo
-9d5f22a154f13c3338fdd889bcc6bcadeaf60ddc 65b21d5616e15a06fccb3826dead8879a0c6591e timeriverclef <92632103+timeriverclef@users.noreply.github.com> 1780994442 +0800	commit: Add GitHub API publish fallback
-65b21d5616e15a06fccb3826dead8879a0c6591e 72e8cfe52288478e58335b9e74663cdc24991d93 timeriverclef <92632103+timeriverclef@users.noreply.github.com> 1780995030 +0800	commit: Fix GitHub API publish script
