@@ -34,13 +34,6 @@
           <button id="homeLocateBtn" class="map-locate-btn" type="button" title="定位当前位置" aria-label="定位当前位置">
             <span aria-hidden="true">⌖</span>
           </button>
-          <div class="map-overlay">
-            <div>
-              <span class="field-label">实验位置</span>
-              <strong id="activeViewpointName">等待定位</strong>
-            </div>
-            <button id="cycleViewpointBtn" class="ghost-btn" type="button">切换</button>
-          </div>
           <p class="map-attribution">MapLibre / OpenFreeMap 可用时加载；失败时使用本地雷达图。</p>
         </section>
 
@@ -49,7 +42,7 @@
             <span class="route-dot"></span>
             <div>
               <h2 id="routeTitle">AR 模式</h2>
-              <p id="routeDescription">默认显示西湖演示位置；点击 AR 模式或定位按钮后获取实际位置和附近山峰。</p>
+              <p id="routeDescription">点击 AR 模式或定位按钮后获取真实位置和附近山峰。</p>
             </div>
           </div>
           <div class="metric-grid">
@@ -75,7 +68,6 @@
           </button>
           <div class="secondary-actions">
             <button id="homeUploadBtn" class="secondary-btn" type="button">上传画面</button>
-            <button id="homeDemoBtn" class="secondary-btn" type="button">演示模式</button>
           </div>
         </section>
       </section>
@@ -94,8 +86,8 @@
             <span aria-hidden="true">‹</span>
           </button>
           <div class="scanner-title">
-            <span id="modePill" class="status-pill">演示模式</span>
-            <strong id="scannerViewpoint">苏堤北段</strong>
+            <span id="modePill" class="status-pill">AR 模式</span>
+            <strong id="scannerViewpoint">等待定位</strong>
           </div>
           <button id="scannerSettingsBtn" class="icon-btn glass" type="button" title="设置" aria-label="设置">
             <span aria-hidden="true">⚙</span>
@@ -120,7 +112,7 @@
           <div class="scanner-status">
             <div>
               <span class="field-label">定位</span>
-              <strong id="locationText">西湖 · 苏堤北段</strong>
+              <strong id="locationText">等待定位</strong>
             </div>
             <div>
               <span class="field-label">朝向</span>
@@ -211,7 +203,20 @@
             <input id="developerModeToggle" type="checkbox" />
           </label>
 
+          <button id="applySettingsBtn" class="primary-btn setting-action" type="button">应用设置</button>
+          <button id="settingsDemoBtn" class="secondary-btn setting-action" type="button">进入演示模式</button>
           <button id="clearCacheBtn" class="secondary-btn setting-action" type="button">清除山峰缓存</button>
+        </section>
+      </dialog>
+
+      <dialog id="locationDialog" class="location-dialog" aria-labelledby="locationDialogTitle">
+        <section class="location-sheet">
+          <h2 id="locationDialogTitle">无法获取定位</h2>
+          <p>请允许浏览器定位权限，或移动到开阔位置后重试。</p>
+          <div class="dialog-actions">
+            <button id="retryLocationBtn" class="primary-btn" type="button">重试定位</button>
+            <button id="dismissLocationBtn" class="secondary-btn" type="button">稍后再说</button>
+          </div>
         </section>
       </dialog>
 

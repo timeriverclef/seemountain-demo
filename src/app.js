@@ -70,17 +70,14 @@ const els = {
   map: document.querySelector("#map"),
   mapFallback: document.querySelector("#mapFallback"),
   mapFallbackDots: document.querySelector("#mapFallbackDots"),
-  activeViewpointName: document.querySelector("#activeViewpointName"),
   routeTitle: document.querySelector("#routeTitle"),
   routeDescription: document.querySelector("#routeDescription"),
   peakCount: document.querySelector("#peakCount"),
   homeHeading: document.querySelector("#homeHeading"),
   dataSourceText: document.querySelector("#dataSourceText"),
-  cycleViewpointBtn: document.querySelector("#cycleViewpointBtn"),
   homeLocateBtn: document.querySelector("#homeLocateBtn"),
   startScanBtn: document.querySelector("#startScanBtn"),
   homeUploadBtn: document.querySelector("#homeUploadBtn"),
-  homeDemoBtn: document.querySelector("#homeDemoBtn"),
   homeSettingsBtn: document.querySelector("#homeSettingsBtn"),
   camera: document.querySelector("#camera"),
   fallback: document.querySelector("#fallbackScene"),
@@ -109,7 +106,12 @@ const els = {
   closeSettingsBtn: document.querySelector("#closeSettingsBtn"),
   mapSourceSelect: document.querySelector("#mapSourceSelect"),
   developerModeToggle: document.querySelector("#developerModeToggle"),
+  applySettingsBtn: document.querySelector("#applySettingsBtn"),
+  settingsDemoBtn: document.querySelector("#settingsDemoBtn"),
   clearCacheBtn: document.querySelector("#clearCacheBtn"),
+  locationDialog: document.querySelector("#locationDialog"),
+  retryLocationBtn: document.querySelector("#retryLocationBtn"),
+  dismissLocationBtn: document.querySelector("#dismissLocationBtn"),
   detailDialog: document.querySelector("#detailDialog"),
   closeDetail: document.querySelector("#closeDetail"),
   detailMeta: document.querySelector("#detailMeta"),
@@ -141,6 +143,8 @@ const state = {
   viewpoints: [],
   activeViewpointIndex: 0,
   location: null,
+  demoActive: false,
+  locationRetryAction: null,
   heading: 247,
   dataSource: "待获取",
   screen: "home",
@@ -166,7 +170,8 @@ const state = {
   compassPopupTarget: null,
   headingFrame: null,
   compassCenter: null,
-  settings: { ...DEFAULT_SETTINGS }
+  settings: { ...DEFAULT_SETTINGS },
+  pendingSettings: null
 };
 
 init();
@@ -201,12 +206,10 @@ async function loadData() {
 }
 
 function bindEvents() {
-  els.cycleViewpointBtn.addEventListener("click", cycleViewpoint);
   els.homeLocateBtn.addEventListener("click", locateFromHome);
   els.startScanBtn.addEventListener("click", () => {
     startRealExperiment();
   });
-  els.homeDemoBtn.addEventListener("click", () => enterScanner("demo"));
   els.homeUploadBtn.addEventListener("click", () => {
     state.uploadContext = "home";
     els.uploadInput.click();
@@ -215,13 +218,17 @@ function bindEvents() {
   els.scannerSettingsBtn.addEventListener("click", openSettings);
   els.closeDevBtn.addEventListener("click", closeDevPanel);
   els.closeSettingsBtn.addEventListener("click", () => els.settingsDialog.close());
-  els.mapSourceSelect.addEventListener("change", () => updateSetting("mapSource", els.mapSourceSelect.value));
-  els.developerModeToggle.addEventListener("change", () => updateSetting("developerMode", els.developerModeToggle.checked));
+  els.mapSourceSelect.addEventListener("change", () => updatePendingSetting("mapSource", els.mapSourceSelect.value));
+  els.developerModeToggle.addEventListener("change", () => updatePendingSetting("developerMode", els.developerModeToggle.checked));
+  els.applySettingsBtn.addEventListener("click", applyPendingSettings);
+  els.settingsDemoBtn.addEventListener("click", enterDemoFromSettings);
   els.clearCacheBtn.addEventListener("click", clearPeakCache);
+  els.retryLocationBtn.addEventListener("click", retryLocationRequest);
+  els.dismissLocationBtn.addEventListener("click", () => els.locationDialog.close());
   document.querySelectorAll("[data-setting]").forEach((button) => {
     button.addEventListener("click", () => {
       const value = Number(button.dataset.value);
-      updateSetting(button.dataset.setting, value);
+      updatePendingSetting(button.dataset.setting, value);
     });
   });
   els.backHomeBtn.addEventListener("click", enterHome);
@@ -260,7 +267,7 @@ function bindEvents() {
 function applyInitialRoute() {
   const params = new URLSearchParams(location.search);
   if (params.get("screen") === "scanner") {
-    enterScanner("demo");
+    enterScanner("experiment");
   }
   if (params.get("scan") === "1") {
     window.setTimeout(scan, 450);
@@ -314,20 +321,21 @@ function cycleViewpoint() {
 }
 
 function renderHome() {
-  const viewpoint = getActiveViewpoint();
-  const locationLabel = state.location?.label ?? `西湖 · ${viewpoint.name}`;
-  const displayDataSource = state.location ? state.dataSource : "西湖演示";
-  els.activeViewpointName.textContent = locationLabel;
-  els.routeTitle.textContent = state.location
-    ? `${state.location.label}`
-    : "AR 模式";
-  els.routeDescription.textContent = state.location
-    ? `当前使用 ${state.dataSource} 数据。点击 AR 模式可重新定位和刷新附近山峰。`
-    : "默认显示西湖演示位置；点击 AR 模式或定位按钮后获取实际位置和附近山峰。";
+  const mapLocation = getMapLocation();
+  const locationLabel = state.demoActive
+    ? `西湖 · ${getActiveViewpoint().name}`
+    : state.location?.label ?? "等待定位";
+  const displayDataSource = state.demoActive ? "西湖演示" : state.dataSource;
+  els.routeTitle.textContent = state.demoActive ? "演示模式" : state.location ? "当前位置" : "AR 模式";
+  els.routeDescription.textContent = state.demoActive
+    ? "当前使用西湖预置数据。真实识别请返回首页后点击 AR 模式重新定位。"
+    : state.location
+      ? `当前使用真实位置和 ${state.dataSource} 数据。点击 AR 模式可重新定位和刷新附近山峰。`
+      : "点击 AR 模式或定位按钮后获取真实位置和附近山峰。";
   els.peakCount.textContent = String(getDisplayPeaks().length);
   els.homeHeading.textContent = String(Math.round(state.heading)).padStart(3, "0");
   els.dataSourceText.textContent = displayDataSource;
-  els.scannerViewpoint.textContent = locationLabel.replace("西湖 · ", "");
+  els.scannerViewpoint.textContent = mapLocation ? locationLabel.replace("西湖 · ", "") : "等待定位";
   els.locationText.textContent = locationLabel;
 }
 
@@ -341,6 +349,8 @@ function enterScanner(mode) {
     stopCamera();
     clearFrozenFrame();
     setActiveViewpoint(state.activeViewpointIndex);
+    state.demoActive = true;
+    state.location = null;
     state.peaks = [...state.demoPeaks];
     state.dataSource = "西湖演示";
     state.cameraMode = "demo";
@@ -352,6 +362,7 @@ function enterScanner(mode) {
   } else if (mode === "upload") {
     stopCamera();
     clearFrozenFrame();
+    state.demoActive = false;
     state.cameraMode = "upload";
     showCameraLayer("fallback");
     setModePill("上传画面");
@@ -359,6 +370,7 @@ function enterScanner(mode) {
   } else if (mode === "experiment") {
     stopCamera();
     clearFrozenFrame();
+    state.demoActive = false;
     state.cameraMode = "demo";
     showCameraLayer("fallback");
     setModePill("AR 模式");
@@ -378,6 +390,7 @@ function enterHome() {
 }
 
 async function startRealExperiment() {
+  state.demoActive = false;
   state.dataSource = "定位中";
   state.peaks = [];
   state.location = null;
@@ -391,9 +404,9 @@ async function startRealExperiment() {
   if (!gotLocation) {
     state.dataSource = "定位失败";
     renderHome();
+    renderMapFallback();
     renderDevPanel();
-    enterScanner("experiment");
-    startCamera();
+    showLocationError("start");
     return;
   }
 
@@ -410,6 +423,7 @@ async function startRealExperiment() {
 }
 
 async function locateFromHome() {
+  state.demoActive = false;
   state.dataSource = "定位中";
   renderHome();
 
@@ -417,7 +431,9 @@ async function locateFromHome() {
   if (!gotLocation) {
     state.dataSource = "定位失败";
     renderHome();
+    renderMapFallback();
     renderDevPanel();
+    showLocationError("home");
     return;
   }
 
@@ -481,10 +497,15 @@ function stopCamera() {
 async function requestSensors() {
   const [locationResult] = await Promise.allSettled([requestLocation(), requestOrientation()]);
   if (locationResult.status === "fulfilled" && locationResult.value) {
+    state.demoActive = false;
     state.dataSource = "查询 OSM";
     renderHome();
     await updateNearbyPeaks();
     state.hasScanResults = false;
+  } else {
+    state.dataSource = "定位失败";
+    renderHome();
+    showLocationError("scanner");
   }
   renderHome();
   renderMapFallback();
@@ -770,10 +791,11 @@ function loadUploadedFrame(event) {
   stopCamera();
 
   if (!state.location || !state.peaks.length) {
-    setActiveViewpoint(state.activeViewpointIndex);
-    state.peaks = [...state.demoPeaks];
-    state.dataSource = "上传演示";
+    state.dataSource = "定位失败";
     renderHome();
+    showLocationError("upload");
+    event.target.value = "";
+    return;
   }
 
   enterScanner("upload");
@@ -837,14 +859,15 @@ function renderTargets() {
 }
 
 function computeTargets() {
-  if (!state.location) {
+  const locationPoint = getMapLocation();
+  if (!locationPoint) {
     state.hiddenTargetCount = 0;
     return [];
   }
 
   const measured = getDisplayPeaks().map((peak) => {
-    const distance = distanceMeters(state.location, peak);
-    const bearing = bearingDegrees(state.location, peak);
+    const distance = distanceMeters(locationPoint, peak);
+    const bearing = bearingDegrees(locationPoint, peak);
     const relative = normalizeRelativeAngle(bearing - state.heading);
     const visible = Math.abs(relative) <= FOV_DEGREES / 2;
     const confidence = clamp(1 - Math.abs(relative) / (FOV_DEGREES * 0.78), 0.38, 0.96);
@@ -916,7 +939,7 @@ function labelsCollide(a, b) {
 }
 
 function computeTargetForPeak(peak) {
-  const locationPoint = state.location ?? getActiveViewpoint();
+  const locationPoint = getMapLocation();
   if (!locationPoint) return null;
   const distance = distanceMeters(locationPoint, peak);
   const bearing = bearingDegrees(locationPoint, peak);
@@ -937,8 +960,8 @@ function computeTargetForPeak(peak) {
 function getDisplayPeaks() {
   const locationPoint = getMapLocation();
   const rangeMeters = getViewRangeMeters();
-  const peaks = state.peaks.length ? state.peaks : state.demoPeaks;
-  if (!locationPoint) return peaks;
+  const peaks = state.demoActive ? state.demoPeaks : state.peaks;
+  if (!locationPoint) return [];
   return peaks.filter((peak) => distanceMeters(locationPoint, peak) <= rangeMeters);
 }
 
@@ -947,7 +970,7 @@ function getViewRangeMeters() {
 }
 
 function getMapLocation() {
-  return state.location ?? getActiveViewpoint();
+  return state.location ?? (state.demoActive ? getActiveViewpoint() : null);
 }
 
 function renderRadar(targets) {
@@ -976,7 +999,9 @@ function renderRadar(targets) {
 function renderMapFallback() {
   els.mapFallbackDots.innerHTML = "";
   const peakPoints = getDisplayPeaks();
-  const locationPoints = [getMapLocation()];
+  const mapLocation = getMapLocation();
+  if (!mapLocation) return;
+  const locationPoints = [mapLocation];
   const points = [...peakPoints, ...locationPoints];
   const bounds = getBounds(points);
 
@@ -992,7 +1017,7 @@ function renderMapFallback() {
 
   const viewpointDot = document.createElement("span");
   viewpointDot.className = "map-dot";
-  const position = projectToMapFallback(getMapLocation(), bounds);
+  const position = projectToMapFallback(mapLocation, bounds);
   viewpointDot.style.left = `${position.x}%`;
   viewpointDot.style.top = `${position.y}%`;
   viewpointDot.title = state.location?.label ?? getActiveViewpoint().name;
@@ -1018,10 +1043,11 @@ function setupMap() {
   }
 
   try {
+    const center = getMapLocation() ?? getActiveViewpoint();
     state.map = new window.maplibregl.Map({
       container: els.map,
       style: source.style,
-      center: [getActiveViewpoint().lon, getActiveViewpoint().lat],
+      center: [center.lon, center.lat],
       zoom: 12.2,
       attributionControl: false,
       interactive: false
@@ -1100,6 +1126,7 @@ function destroyHomeMap() {
 
 function addMapMarkers() {
   clearMapMarkers();
+  if (!state.map) return;
 
   getDisplayPeaks().forEach((peak) => {
     const el = document.createElement("span");
@@ -1113,6 +1140,7 @@ function addMapMarkers() {
   const el = document.createElement("span");
   el.className = "maplibre-marker viewpoint-marker";
   const markerLocation = getMapLocation();
+  if (!markerLocation) return;
   const marker = new window.maplibregl.Marker({ element: el })
     .setLngLat([markerLocation.lon, markerLocation.lat])
     .addTo(state.map);
@@ -1127,6 +1155,7 @@ function clearMapMarkers() {
 function updateMapFocus() {
   if (!state.map) return;
   const center = getMapLocation();
+  if (!center) return;
   state.map.jumpTo({
     center: [center.lon, center.lat],
     zoom: 12.2
@@ -1215,11 +1244,24 @@ function renderCompassMap() {
   if (!els.compassDialog.open) return;
 
   const locationPoint = getMapLocation();
+  if (!locationPoint) {
+    els.compassBearingText.textContent = `${Math.round(normalizeDegrees(state.heading))}°`;
+    els.compassSourceText.textContent = "未定位";
+    els.compassModeText.textContent = "等待定位";
+    els.compassRadiusText.textContent = `${state.settings.searchRadiusKm}km · ${FOV_DEGREES}°`;
+    els.compassDots.innerHTML = "";
+    els.compassDistanceRings.innerHTML = "";
+    clearCompassMarkers();
+    hideCompassPopup();
+    updateCompassStyleButtons();
+    els.compassDial.className = `compass-dial ${state.compassStyle} ${state.compassOverlay ? "active" : ""}`;
+    return;
+  }
   const peaks = getDisplayPeaks();
   const heading = normalizeDegrees(state.heading);
 
   els.compassBearingText.textContent = `${Math.round(heading)}°`;
-  els.compassSourceText.textContent = state.location ? state.dataSource : "西湖演示";
+  els.compassSourceText.textContent = state.demoActive ? "西湖演示" : state.location ? state.dataSource : "未定位";
   els.compassModeText.textContent = getCompassModeText();
   els.compassRadiusText.textContent = `${state.settings.searchRadiusKm}km · ${FOV_DEGREES}°`;
   els.toggleCompassOverlayBtn.classList.toggle("active", state.compassOverlay);
@@ -1248,6 +1290,7 @@ function setupCompassMap() {
   }
 
   const center = getMapLocation();
+  if (!center) return;
   try {
     state.compassMap = new window.maplibregl.Map({
       container: els.compassMap,
@@ -1368,6 +1411,7 @@ function updateCompassHeadingOverlay() {
   if (!els.compassDialog.open) return;
 
   const locationPoint = getMapLocation();
+  if (!locationPoint) return;
   const heading = normalizeDegrees(state.heading);
   const center = getCompassScreenCenter(locationPoint);
   state.compassCenter = center;
@@ -1431,7 +1475,8 @@ function getCompassMaxRingRadius(locationPoint, maxDistance) {
 }
 
 function getCompassModeText() {
-  if (!state.location) return "演示朝向";
+  if (state.demoActive) return "演示朝向";
+  if (!state.location) return "等待定位";
   if (state.orientationListening) return "设备罗盘";
   return "手动校准";
 }
@@ -1517,6 +1562,7 @@ function saveSettings() {
 }
 
 function openSettings() {
+  state.pendingSettings = { ...state.settings };
   renderSettings();
   if (!els.settingsDialog.open) {
     els.settingsDialog.showModal();
@@ -1524,42 +1570,100 @@ function openSettings() {
 }
 
 function renderSettings() {
+  const settings = state.pendingSettings ?? state.settings;
   document.querySelectorAll("[data-setting]").forEach((button) => {
-    const current = state.settings[button.dataset.setting];
+    const current = settings[button.dataset.setting];
     button.classList.toggle("active", String(current) === button.dataset.value);
   });
-  els.mapSourceSelect.value = state.settings.mapSource;
-  els.developerModeToggle.checked = state.settings.developerMode;
+  els.mapSourceSelect.value = settings.mapSource;
+  els.developerModeToggle.checked = settings.developerMode;
 }
 
-function updateSetting(key, value) {
-  state.settings[key] = value;
+function updatePendingSetting(key, value) {
+  if (!state.pendingSettings) {
+    state.pendingSettings = { ...state.settings };
+  }
+  state.pendingSettings[key] = value;
+  renderSettings();
+}
+
+async function applyPendingSettings() {
+  if (!state.pendingSettings) return;
+
+  const previous = { ...state.settings };
+  const next = { ...state.pendingSettings };
+  const radiusChanged = previous.searchRadiusKm !== next.searchRadiusKm;
+  const maxLabelsChanged = previous.maxLabels !== next.maxLabels;
+  const mapSourceChanged = previous.mapSource !== next.mapSource;
+  const developerModeChanged = previous.developerMode !== next.developerMode;
+
+  state.settings = next;
   saveSettings();
+  state.pendingSettings = { ...state.settings };
   renderSettings();
 
-  if (key === "developerMode") {
-    els.devPanel.classList.toggle("active", Boolean(value));
+  if (developerModeChanged) {
+    els.devPanel.classList.toggle("active", Boolean(state.settings.developerMode));
     renderDevPanel();
   }
 
-  if (key === "maxLabels") {
-    renderTargets();
-    renderDevPanel();
+  if (radiusChanged) {
+    setSensorPill(`视野范围 ${state.settings.searchRadiusKm}km`, "ready");
+    if (state.location) {
+      state.dataSource = "查询 OSM";
+      renderHome();
+      await updateNearbyPeaks();
+    }
   }
 
-  if (key === "mapSource") {
+  if (mapSourceChanged) {
     reloadMaps();
   }
 
-  if (key === "searchRadiusKm") {
-    setSensorPill(`视野范围 ${value}km`, "ready");
+  if (radiusChanged || maxLabelsChanged) {
+    renderTargets();
+    renderDevPanel();
+  }
+
+  if (radiusChanged || mapSourceChanged || maxLabelsChanged) {
     renderHome();
     renderMapFallback();
     addMapMarkers();
-    renderTargets();
-    renderDevPanel();
     renderCompassMap();
   }
+
+  els.settingsDialog.close();
+}
+
+function enterDemoFromSettings() {
+  if (els.settingsDialog.open) {
+    els.settingsDialog.close();
+  }
+  enterScanner("demo");
+}
+
+function showLocationError(retryAction = "home") {
+  state.locationRetryAction = retryAction;
+  if (!els.locationDialog.open) {
+    els.locationDialog.showModal();
+  }
+}
+
+async function retryLocationRequest() {
+  if (els.locationDialog.open) {
+    els.locationDialog.close();
+  }
+  const retryAction = state.locationRetryAction;
+  state.locationRetryAction = null;
+  if (retryAction === "start" || retryAction === "upload") {
+    await startRealExperiment();
+    return;
+  }
+  if (retryAction === "scanner") {
+    await requestSensors();
+    return;
+  }
+  await locateFromHome();
 }
 
 function getMaxLabels() {
@@ -1585,12 +1689,14 @@ function closeDevPanel() {
 
 function renderDevPanel() {
   const targets = computeTargets().slice(0, getMaxLabels());
+  const locationPoint = getMapLocation();
   const rows = [
     ["页面", state.screen === "home" ? "地图入口" : "扫描页"],
-    ["观景点", getActiveViewpoint()?.name ?? "-"],
+    ["位置来源", state.demoActive ? "演示模式" : state.location ? "真实定位" : "未定位"],
     ["画面来源", cameraModeLabel()],
     ["AR 状态", state.arLive ? "实时叠加中" : "等待扫描"],
-    ["位置", state.location ? `${state.location.lat.toFixed(5)}, ${state.location.lon.toFixed(5)}` : "-"],
+    ["位置", locationPoint ? `${locationPoint.lat.toFixed(5)}, ${locationPoint.lon.toFixed(5)}` : "-"],
+    ["数据源", state.dataSource],
     ["朝向", `${Math.round(state.heading)}°`],
     ["FOV", `${FOV_DEGREES}°`],
     ["可信度公式", `clamp(1 - |方位偏差| / (${FOV_DEGREES} × 0.78), 0.38, 0.96)`],
@@ -1612,7 +1718,7 @@ function renderDevPanel() {
 function cameraModeLabel() {
   if (state.cameraMode === "live") return "实时摄像头";
   if (state.cameraMode === "upload") return "上传画面";
-  if (state.cameraMode === "demo") return "演示图";
+  if (state.cameraMode === "demo") return state.demoActive ? "演示图" : "相机兜底图";
   return state.cameraMode;
 }
 

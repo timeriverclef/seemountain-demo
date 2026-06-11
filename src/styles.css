@@ -864,6 +864,51 @@ button {
   background: rgba(0, 0, 0, 0.45);
 }
 
+.location-dialog {
+  position: fixed;
+  top: auto;
+  right: 32px;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  left: 16px;
+  width: auto;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+}
+
+.location-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.42);
+}
+
+.location-sheet {
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(13, 19, 16, 0.96);
+  box-shadow: var(--shadow);
+}
+
+.location-sheet h2 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.location-sheet p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.dialog-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 16px;
+}
+
 .settings-sheet {
   max-height: 74dvh;
   overflow: auto;
@@ -943,6 +988,10 @@ button {
   width: 100%;
   margin-top: 14px;
   color: var(--text);
+}
+
+.setting-action + .setting-action {
+  margin-top: 8px;
 }
 
 .detail-dialog {
