@@ -842,7 +842,7 @@ function computeTargets() {
     return [];
   }
 
-  const measured = state.peaks.map((peak) => {
+  const measured = getDisplayPeaks().map((peak) => {
     const distance = distanceMeters(state.location, peak);
     const bearing = bearingDegrees(state.location, peak);
     const relative = normalizeRelativeAngle(bearing - state.heading);
@@ -935,7 +935,15 @@ function computeTargetForPeak(peak) {
 }
 
 function getDisplayPeaks() {
-  return state.peaks.length ? state.peaks : state.demoPeaks;
+  const locationPoint = getMapLocation();
+  const rangeMeters = getViewRangeMeters();
+  const peaks = state.peaks.length ? state.peaks : state.demoPeaks;
+  if (!locationPoint) return peaks;
+  return peaks.filter((peak) => distanceMeters(locationPoint, peak) <= rangeMeters);
+}
+
+function getViewRangeMeters() {
+  return state.settings.searchRadiusKm * 1000;
 }
 
 function getMapLocation() {
@@ -947,9 +955,12 @@ function renderRadar(targets) {
   els.radarHeading.style.transform = `translateX(-50%) rotate(${state.heading}deg)`;
   const visibleIds = new Set(targets.map((item) => item.peak.id));
 
-  state.peaks.forEach((peak) => {
-    const bearing = bearingDegrees(state.location, peak);
-    const distance = distanceMeters(state.location, peak);
+  const locationPoint = getMapLocation();
+  if (!locationPoint) return;
+
+  getDisplayPeaks().forEach((peak) => {
+    const bearing = bearingDegrees(locationPoint, peak);
+    const distance = distanceMeters(locationPoint, peak);
     const radius = clamp(distance / 9500, 0.18, 0.46) * 92;
     const angle = ((bearing - 90) * Math.PI) / 180;
     const x = 46 + Math.cos(angle) * radius;
@@ -1541,7 +1552,13 @@ function updateSetting(key, value) {
   }
 
   if (key === "searchRadiusKm") {
-    setSensorPill(`搜索范围 ${value}km`, "ready");
+    setSensorPill(`视野范围 ${value}km`, "ready");
+    renderHome();
+    renderMapFallback();
+    addMapMarkers();
+    renderTargets();
+    renderDevPanel();
+    renderCompassMap();
   }
 }
 

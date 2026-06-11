@@ -1095,14 +1095,18 @@ button {
 
 .compass-view-cone {
   position: absolute;
-  z-index: 6;
+  z-index: 8;
   width: min(86vw, 360px);
   height: min(86vw, 360px);
   border-radius: 50%;
-  background: conic-gradient(from -41deg, rgba(88, 211, 140, 0.28) 0 82deg, transparent 82deg 360deg);
+  border: 1px solid rgba(24, 83, 49, 0.34);
+  background:
+    radial-gradient(circle, rgba(255, 255, 255, 0.1) 0 22%, transparent 23%),
+    conic-gradient(from -41deg, rgba(48, 166, 89, 0.3) 0 82deg, transparent 82deg 360deg);
+  box-shadow: inset 0 0 0 1px rgba(240, 255, 221, 0.18), 0 0 28px rgba(48, 166, 89, 0.18);
   pointer-events: none;
   transform-origin: center;
-  mix-blend-mode: screen;
+  mix-blend-mode: multiply;
 }
 
 .compass-heading-line {
