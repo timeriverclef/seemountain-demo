@@ -170,6 +170,7 @@ const state = {
   compassPopupTarget: null,
   headingFrame: null,
   compassCenter: null,
+  homeBusy: false,
   settings: { ...DEFAULT_SETTINGS },
   pendingSettings: null
 };
@@ -390,6 +391,8 @@ function enterHome() {
 }
 
 async function startRealExperiment() {
+  if (state.homeBusy) return;
+  setHomeBusy(true);
   state.demoActive = false;
   state.dataSource = "定位中";
   state.peaks = [];
@@ -403,6 +406,7 @@ async function startRealExperiment() {
   const gotLocation = locationResult.status === "fulfilled" && locationResult.value;
   if (!gotLocation) {
     state.dataSource = "定位失败";
+    setHomeBusy(false);
     renderHome();
     renderMapFallback();
     renderDevPanel();
@@ -411,6 +415,7 @@ async function startRealExperiment() {
   }
 
   state.dataSource = "查询 OSM";
+  setHomeBusy(true, "query");
   renderHome();
 
   await updateNearbyPeaks();
@@ -418,11 +423,14 @@ async function startRealExperiment() {
   renderMapFallback();
   updateMapFocus();
 
+  setHomeBusy(false);
   enterScanner("experiment");
   startCamera();
 }
 
 async function locateFromHome() {
+  if (state.homeBusy) return;
+  setHomeBusy(true);
   state.demoActive = false;
   state.dataSource = "定位中";
   renderHome();
@@ -430,6 +438,7 @@ async function locateFromHome() {
   const gotLocation = await requestLocation();
   if (!gotLocation) {
     state.dataSource = "定位失败";
+    setHomeBusy(false);
     renderHome();
     renderMapFallback();
     renderDevPanel();
@@ -438,9 +447,11 @@ async function locateFromHome() {
   }
 
   state.dataSource = "查询 OSM";
+  setHomeBusy(true, "query");
   renderHome();
   await updateNearbyPeaks();
   state.hasScanResults = false;
+  setHomeBusy(false);
   renderHome();
   renderMapFallback();
   updateMapFocus();
@@ -634,7 +645,7 @@ async function fetchNearbyPeaksOnce(lat, lon, radius) {
           lat: item.lat,
           lon: item.lon,
           elevation,
-          screenY: elevation > 300 ? 38 : 48,
+          screenY: hasPeakElevation({ elevation }) && elevation > 300 ? 38 : 48,
           tags: ["OSM", "当前位置"],
           intro: `${name} 来自 OpenStreetMap/Overpass 开放数据。当前原型根据当前位置、朝向和山峰坐标推断它是否位于视野内。`,
           route: "开放数据通常不包含完整登山路线；后续可为重点区域补充人工校准的路线和介绍。"
@@ -687,9 +698,9 @@ function delay(ms) {
 }
 
 function parseElevation(value) {
-  if (!value) return 0;
+  if (!value) return null;
   const match = String(value).match(/-?\d+(\.\d+)?/);
-  return match ? Math.round(Number(match[0])) : 0;
+  return match ? Math.round(Number(match[0])) : null;
 }
 
 function handleOrientation(event) {
@@ -818,6 +829,16 @@ function setSensorPill(text, tone) {
   els.sensorPill.className = `sensor-pill ${tone === "warn" ? "warn" : ""}`;
 }
 
+function setHomeBusy(active, stage = "locating") {
+  state.homeBusy = active;
+  els.homeScreen.classList.toggle("home-loading", active);
+  els.homeScreen.classList.toggle("home-loading-query", active && stage === "query");
+  els.homeScreen.setAttribute("aria-busy", active ? "true" : "false");
+  els.startScanBtn.classList.toggle("loading", active);
+  els.startScanBtn.disabled = active;
+  els.homeLocateBtn.disabled = active;
+}
+
 function renderTargets() {
   const targets = computeTargets().slice(0, getMaxLabels());
   state.lastTargets = state.hasScanResults ? targets : [];
@@ -835,7 +856,7 @@ function renderTargets() {
         <strong>${target.peak.name}</strong>
         <span class="label-metrics">
           <b>↔ ${formatDistance(target.distance)}</b>
-          <b>▲ ${target.peak.elevation}m</b>
+          <b>▲ ${formatElevation(target.peak.elevation)}</b>
           <b>◉ ${Math.round(target.confidence * 100)}%</b>
         </span>
       `;
@@ -847,7 +868,7 @@ function renderTargets() {
       empty.className = "label-empty";
       empty.textContent = state.peaks.length ? "当前朝向暂无山峰目标" : "附近暂无开放山峰数据";
       els.labelLayer.appendChild(empty);
-    } else if (state.hiddenTargetCount > 0) {
+    } else if (state.hiddenTargetCount > 0 && shouldShowOverflowNotice(targets)) {
       const overflow = document.createElement("div");
       overflow.className = "label-overflow";
       overflow.textContent = `还有 ${state.hiddenTargetCount} 个附近目标`;
@@ -884,8 +905,7 @@ function computeTargets() {
       confidence,
       x,
       y,
-      sourceWeight: peak.tags?.includes("OSM") ? 8 : 0,
-      score: Math.abs(relative) + distance / 900
+      score: targetPriority({ peak, distance, relative })
     };
   });
 
@@ -899,7 +919,7 @@ function computeTargets() {
 
   return placeLabels(
     measured
-      .sort((a, b) => Math.abs(a.relative) - Math.abs(b.relative))
+      .sort((a, b) => a.score - b.score)
       .slice(0, getMaxLabels())
       .map((item, index) => ({
         ...item,
@@ -913,9 +933,7 @@ function placeLabels(targets) {
   const offsets = [0, -12, 12, -24, 24, -34, 34];
   const placed = [];
   const sorted = [...targets].sort((a, b) => {
-    const aRank = Math.abs(a.relative) + a.distance / 1200 + a.sourceWeight;
-    const bRank = Math.abs(b.relative) + b.distance / 1200 + b.sourceWeight;
-    return aRank - bRank;
+    return targetPriority(a) - targetPriority(b);
   });
 
   sorted.forEach((target) => {
@@ -936,6 +954,19 @@ function placeLabels(targets) {
 
 function labelsCollide(a, b) {
   return Math.abs(a.x - b.x) < 22 && Math.abs(a.y - b.y) < 14;
+}
+
+function shouldShowOverflowNotice(targets) {
+  const noticePosition = { x: 25, y: 18 };
+  return !targets.some((target) => labelsCollide(target, noticePosition));
+}
+
+function targetPriority(target) {
+  const centerPenalty = Math.abs(target.relative) * 0.35;
+  const distancePenalty = target.distance / 180;
+  const elevationPenalty = hasPeakElevation(target.peak) ? 0 : 2;
+  const sourcePenalty = target.peak.tags?.includes("OSM") ? 0 : 1;
+  return centerPenalty + distancePenalty + elevationPenalty + sourcePenalty;
 }
 
 function computeTargetForPeak(peak) {
@@ -1509,7 +1540,7 @@ function showCompassPopup(target, fallbackPosition = null, fallbackUnit = "px") 
   const title = document.createElement("strong");
   title.textContent = target.peak.name;
   const meta = document.createElement("span");
-  meta.textContent = `${formatDistance(target.distance)} · ${Math.round(target.bearing)}° · ${target.peak.elevation}m`;
+  meta.textContent = `${formatDistance(target.distance)} · ${Math.round(target.bearing)}° · ${formatElevation(target.peak.elevation)}`;
   const action = document.createElement("button");
   action.type = "button";
   action.textContent = "详情";
@@ -1530,7 +1561,7 @@ function showDetail(target) {
   const { peak } = target;
   els.detailMeta.textContent = peak.tags.join(" · ");
   els.detailTitle.textContent = peak.name;
-  els.detailElevation.textContent = `${peak.elevation}m`;
+  els.detailElevation.textContent = formatElevation(peak.elevation);
   els.detailDistance.textContent = formatDistance(target.distance);
   els.detailBearing.textContent = `${Math.round(target.bearing)}°`;
   els.detailIntro.textContent = peak.intro;
@@ -1835,6 +1866,16 @@ function clamp(value, min, max) {
 function formatDistance(value) {
   if (value < 1000) return `${Math.round(value)}m`;
   return `${(value / 1000).toFixed(1)}km`;
+}
+
+function hasPeakElevation(peak) {
+  const elevation = Number(peak?.elevation);
+  return Number.isFinite(elevation) && elevation > 0;
+}
+
+function formatElevation(elevation) {
+  const value = Number(elevation);
+  return Number.isFinite(value) && value > 0 ? `${Math.round(value)}m` : "-";
 }
 
 function drawVideoCover(ctx, video, width, height) {

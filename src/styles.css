@@ -160,6 +160,26 @@ button {
   box-shadow: var(--shadow);
 }
 
+.map-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  opacity: 0;
+  background: linear-gradient(100deg, transparent 0 34%, rgba(244, 247, 237, 0.16) 48%, transparent 62% 100%);
+  transform: translateX(-100%);
+  pointer-events: none;
+}
+
+.home-loading .map-card::after {
+  opacity: 1;
+  animation: home-map-scan 1200ms cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
+.home-loading-query .map-card::after {
+  animation-duration: 900ms;
+}
+
 .map,
 .map-fallback {
   position: absolute;
@@ -324,6 +344,9 @@ button {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.06);
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease;
 }
 
 .route-main {
@@ -339,6 +362,15 @@ button {
   border-radius: 50%;
   background: var(--green);
   box-shadow: 0 0 0 6px rgba(88, 211, 140, 0.12);
+}
+
+.home-loading .route-panel {
+  border-color: rgba(88, 211, 140, 0.38);
+  background: rgba(88, 211, 140, 0.08);
+}
+
+.home-loading .route-dot {
+  animation: route-dot-breathe 900ms ease-in-out infinite;
 }
 
 .route-panel h2 {
@@ -400,6 +432,28 @@ button {
   background: linear-gradient(135deg, var(--green), #9be4b9);
   color: #102018;
   box-shadow: 0 20px 46px rgba(39, 166, 95, 0.24);
+  transition:
+    filter 160ms ease,
+    transform 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.primary-btn:disabled,
+.scan-btn:disabled,
+.icon-btn:disabled,
+.map-locate-btn:disabled {
+  cursor: progress;
+  opacity: 0.82;
+}
+
+.primary-btn.loading {
+  transform: translateY(1px) scale(0.99);
+  filter: saturate(1.08);
+  box-shadow: 0 12px 30px rgba(39, 166, 95, 0.2);
+}
+
+.primary-btn.loading > span {
+  animation: busy-spin 820ms linear infinite;
 }
 
 .primary-btn strong,
@@ -410,8 +464,13 @@ button {
 
 .secondary-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 10px;
+}
+
+.home-actions .secondary-btn {
+  width: 100%;
+  min-height: 56px;
 }
 
 .secondary-btn {
@@ -512,6 +571,7 @@ button {
 
 .mountain-label {
   position: absolute;
+  z-index: 2;
   min-width: 136px;
   max-width: 192px;
   padding: 10px 11px;
@@ -587,8 +647,14 @@ button {
 }
 
 .label-overflow {
-  bottom: 29%;
+  top: max(112px, calc(env(safe-area-inset-top) + 88px));
+  bottom: auto;
+  left: 16px;
+  z-index: 1;
+  max-width: min(210px, calc(100vw - 132px));
   color: #ffdf9e;
+  text-align: left;
+  transform: none;
 }
 
 .center-guide {
@@ -783,6 +849,48 @@ button {
   }
   to {
     transform: translateY(760%);
+  }
+}
+
+@keyframes home-map-scan {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes route-dot-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 6px rgba(88, 211, 140, 0.12);
+  }
+  50% {
+    transform: scale(1.18);
+    box-shadow: 0 0 0 10px rgba(88, 211, 140, 0.04);
+  }
+}
+
+@keyframes busy-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-loading .map-card::after,
+  .home-loading .route-dot,
+  .primary-btn.loading > span,
+  .scanning .scan-sweep {
+    animation: none;
+  }
+
+  .primary-btn,
+  .scan-btn,
+  .route-panel {
+    transition: none;
   }
 }
 
