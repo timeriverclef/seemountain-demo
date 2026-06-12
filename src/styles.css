@@ -421,6 +421,11 @@ button {
   margin: 14px 32px max(16px, env(safe-area-inset-bottom)) 16px;
 }
 
+.home-actions > .primary-btn,
+.home-actions > .secondary-actions {
+  width: 100%;
+}
+
 .primary-btn,
 .scan-btn {
   display: inline-flex;
@@ -466,6 +471,7 @@ button {
   display: grid;
   grid-template-columns: 1fr;
   gap: 10px;
+  width: 100%;
 }
 
 .home-actions .secondary-btn {
