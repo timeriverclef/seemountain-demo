@@ -1,6 +1,7 @@
 const DATA_URL = "./data/peaks.json";
 const FALLBACK_IMAGE = "./assets/west-lake-hills-demo.png";
-const FOV_DEGREES = 82;
+const FOV_DEGREES = 70;
+const CENTER_PRIORITY_DEGREES = 8;
 const SETTINGS_KEY = "seemountain-settings-v1";
 const PEAK_CACHE_KEY = "seemountain-peak-cache-v1";
 const PEAK_CACHE_TTL = 24 * 60 * 60 * 1000;
@@ -153,6 +154,7 @@ const state = {
   frozen: false,
   hasScanResults: false,
   arLive: false,
+  contourModel: null,
   uploadedUrl: null,
   uploadContext: "scanner",
   lastTargets: [],
@@ -741,6 +743,7 @@ function scan() {
   els.scannerScreen.classList.add("scanning");
   state.hasScanResults = false;
   state.arLive = false;
+  state.contourModel = null;
   renderTargets();
 
   window.setTimeout(() => {
@@ -753,6 +756,7 @@ function scan() {
       showCameraLayer(state.cameraMode === "live" ? "camera" : "fallback");
       setModePill(state.cameraMode === "live" ? "实时识别" : "实时叠加");
     }
+    state.contourModel = captureContourModel();
     state.hasScanResults = true;
     state.arLive = true;
     state.lastTargets = computeTargets().slice(0, getMaxLabels());
@@ -782,11 +786,46 @@ function freezeCurrentFrame() {
   setModePill("定帧识别");
 }
 
+function captureContourModel() {
+  const canvas = document.createElement("canvas");
+  const width = 320;
+  const height = 180;
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return null;
+
+  try {
+    if (!drawCurrentFrameForAnalysis(ctx, width, height)) return null;
+    const imageData = ctx.getImageData(0, 0, width, height);
+    return createContourModelFromImageData(imageData);
+  } catch {
+    return null;
+  }
+}
+
+function drawCurrentFrameForAnalysis(ctx, width, height) {
+  if (state.cameraMode === "live" && els.camera.videoWidth > 0) {
+    drawVideoCover(ctx, els.camera, width, height);
+    return true;
+  }
+  if (els.frozen.classList.contains("active") && els.frozen.naturalWidth > 0) {
+    drawImageCover(ctx, els.frozen, width, height);
+    return true;
+  }
+  if (els.fallback.naturalWidth > 0) {
+    drawImageCover(ctx, els.fallback, width, height);
+    return true;
+  }
+  return false;
+}
+
 function clearFrozenFrame() {
   state.frozen = false;
   state.hasScanResults = false;
   state.arLive = false;
   state.lastTargets = [];
+  state.contourModel = null;
   els.frozen.removeAttribute("src");
   els.frozen.classList.remove("active");
   renderTargets();
@@ -850,6 +889,7 @@ function renderTargets() {
       button.type = "button";
       button.className = `mountain-label ${index === 0 ? "primary" : ""}`;
       button.dataset.peakId = target.peak.id;
+      button.dataset.anchorSource = target.anchorSource;
       button.style.left = `${target.x}%`;
       button.style.top = `${target.y}%`;
       button.innerHTML = `
@@ -859,6 +899,7 @@ function renderTargets() {
           <b>▲ ${formatElevation(target.peak.elevation)}</b>
           <b>◉ ${Math.round(target.confidence * 100)}%</b>
         </span>
+        <i class="label-stem" style="${makeStemStyle(target)}" aria-hidden="true"></i>
       `;
       els.labelLayer.appendChild(button);
     });
@@ -896,7 +937,7 @@ function computeTargets() {
     const distanceLift = clamp((2400 - distance) / 2400, -0.4, 0.8) * 6;
     const y = clamp((peak.screenY ?? 48) - distanceLift, 25, 67);
 
-    return {
+    const target = {
       peak,
       distance,
       bearing,
@@ -907,33 +948,20 @@ function computeTargets() {
       y,
       score: targetPriority({ peak, distance, relative })
     };
+    return applyContourAnchor(target, state.contourModel);
   });
 
-  const visible = measured.filter((item) => item.visible).sort((a, b) => a.score - b.score);
-  if (visible.length) return placeLabels(visible);
-
-  if (["OSM/Overpass", "开放数据暂不可用", "附近暂无开放山峰数据"].includes(state.dataSource)) {
-    state.hiddenTargetCount = measured.length;
-    return [];
-  }
-
-  return placeLabels(
-    measured
-      .sort((a, b) => a.score - b.score)
-      .slice(0, getMaxLabels())
-      .map((item, index) => ({
-        ...item,
-        x: 24 + index * 12,
-        confidence: Math.min(item.confidence, 0.56)
-      }))
-  );
+  const visible = measured.filter((item) => item.visible);
+  const selected = selectTargets(visible, getMaxLabels());
+  state.hiddenTargetCount = Math.max(0, visible.length - selected.length);
+  return placeLabels(selected);
 }
 
 function placeLabels(targets) {
   const offsets = [0, -12, 12, -24, 24, -34, 34];
   const placed = [];
   const sorted = [...targets].sort((a, b) => {
-    return targetPriority(a) - targetPriority(b);
+    return displayRank(a) - displayRank(b);
   });
 
   sorted.forEach((target) => {
@@ -946,10 +974,43 @@ function placeLabels(targets) {
         return;
       }
     }
+    placed.push({ ...target, y: clamp(target.y, 25, 68) });
   });
 
-  state.hiddenTargetCount = Math.max(0, sorted.length - placed.length);
-  return placed.sort((a, b) => b.confidence - a.confidence);
+  return placed;
+}
+
+function selectTargets(targets, maxLabels) {
+  const selected = [];
+  if (!maxLabels || maxLabels <= 0) return selected;
+
+  const centerTarget = targets
+    .filter((target) => Math.abs(target.relative) <= CENTER_PRIORITY_DEGREES)
+    .sort((a, b) => Math.abs(a.relative) - Math.abs(b.relative) || a.distance - b.distance)[0];
+
+  if (centerTarget) {
+    selected.push(markSelectedTarget(centerTarget, 0, true, "center"));
+  }
+
+  targets
+    .filter((target) => !centerTarget || target.peak.id !== centerTarget.peak.id)
+    .sort((a, b) => a.distance - b.distance || Math.abs(a.relative) - Math.abs(b.relative))
+    .some((target) => {
+      if (selected.length >= maxLabels) return true;
+      selected.push(markSelectedTarget(target, selected.length, false, "nearest"));
+      return false;
+    });
+
+  return selected;
+}
+
+function markSelectedTarget(target, displayRankValue, primary, selectionReason) {
+  return {
+    ...target,
+    displayRank: displayRankValue,
+    primary,
+    selectionReason
+  };
 }
 
 function labelsCollide(a, b) {
@@ -967,6 +1028,142 @@ function targetPriority(target) {
   const elevationPenalty = hasPeakElevation(target.peak) ? 0 : 2;
   const sourcePenalty = target.peak.tags?.includes("OSM") ? 0 : 1;
   return centerPenalty + distancePenalty + elevationPenalty + sourcePenalty;
+}
+
+function displayRank(target) {
+  return Number.isFinite(target.displayRank) ? target.displayRank : targetPriority(target);
+}
+
+function applyContourAnchor(target, contourModel) {
+  const fallbackY = getFallbackAnchorY(target);
+  const anchorX = clamp(Number(target.x), 18, 82);
+  const contourY = sampleContourY(contourModel, anchorX);
+  if (contourY === null) {
+    return {
+      ...target,
+      anchorX,
+      anchorY: fallbackY,
+      anchorSource: "data"
+    };
+  }
+
+  const blended = Math.abs(contourY - fallbackY) <= 18
+    ? contourY
+    : fallbackY * 0.45 + contourY * 0.55;
+  return {
+    ...target,
+    anchorX,
+    anchorY: clamp(blended, 22, 74),
+    anchorSource: "contour"
+  };
+}
+
+function getFallbackAnchorY(target) {
+  const peakY = Number(target.peak?.screenY);
+  if (Number.isFinite(peakY)) return clamp(peakY, 22, 74);
+  return clamp(Number(target.y) || 48, 22, 74);
+}
+
+function sampleContourY(model, xPercent) {
+  if (!model?.yByX?.length) return null;
+  const index = Math.round(clamp(xPercent, 0, 100) / 100 * (model.sampleWidth - 1));
+  const values = [];
+  for (let offset = -3; offset <= 3; offset += 1) {
+    const value = model.yByX[index + offset];
+    if (Number.isFinite(value)) values.push(value);
+  }
+  if (!values.length) return null;
+  values.sort((a, b) => a - b);
+  return (values[Math.floor(values.length / 2)] / model.sampleHeight) * 100;
+}
+
+function createContourModelFromImageData(imageData) {
+  if (!imageData?.data?.length) return null;
+  const sampleWidth = 160;
+  const sampleHeight = 96;
+  const startY = Math.floor(sampleHeight * 0.18);
+  const endY = Math.floor(sampleHeight * 0.78);
+  const yByX = [];
+  let hits = 0;
+  let scoreTotal = 0;
+
+  for (let sx = 0; sx < sampleWidth; sx += 1) {
+    const sourceX = Math.floor(((sx + 0.5) / sampleWidth) * imageData.width);
+    let bestY = null;
+    let bestScore = 0;
+
+    for (let sy = startY; sy <= endY; sy += 1) {
+      const top = samplePixel(imageData, sourceX, Math.floor(((sy - 2) / sampleHeight) * imageData.height));
+      const bottom = samplePixel(imageData, sourceX, Math.floor(((sy + 3) / sampleHeight) * imageData.height));
+      const brightToDark = top.luma - bottom.luma;
+      const contrast = Math.abs(brightToDark);
+      const mountainColorBias = Math.max(0, bottom.g - bottom.b) * 0.12;
+      const score = brightToDark * 1.15 + contrast * 0.32 + mountainColorBias;
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestY = sy;
+      }
+    }
+
+    if (bestY !== null && bestScore >= 18) {
+      yByX[sx] = bestY;
+      hits += 1;
+      scoreTotal += bestScore;
+    } else {
+      yByX[sx] = null;
+    }
+  }
+
+  if (hits < sampleWidth * 0.22) return null;
+
+  return {
+    confidence: clamp((hits / sampleWidth) * 0.72 + (scoreTotal / hits / 80) * 0.28, 0, 1),
+    sampleHeight,
+    sampleWidth,
+    yByX: smoothContour(yByX)
+  };
+}
+
+function samplePixel(imageData, x, y) {
+  const safeX = Math.round(clamp(x, 0, imageData.width - 1));
+  const safeY = Math.round(clamp(y, 0, imageData.height - 1));
+  const index = (safeY * imageData.width + safeX) * 4;
+  const data = imageData.data;
+  const r = data[index];
+  const g = data[index + 1];
+  const b = data[index + 2];
+  return {
+    b,
+    g,
+    luma: r * 0.299 + g * 0.587 + b * 0.114,
+    r
+  };
+}
+
+function smoothContour(values) {
+  return values.map((value, index) => {
+    if (!Number.isFinite(value)) return null;
+    const windowValues = [];
+    for (let offset = -2; offset <= 2; offset += 1) {
+      const next = values[index + offset];
+      if (Number.isFinite(next)) windowValues.push(next);
+    }
+    windowValues.sort((a, b) => a - b);
+    return windowValues[Math.floor(windowValues.length / 2)];
+  });
+}
+
+function makeStemStyle(target) {
+  const startX = Number(target.x) || 50;
+  const startY = (Number(target.y) || 48) + 5.4;
+  const anchorX = Number(target.anchorX) || startX;
+  const anchorY = Number(target.anchorY) || getFallbackAnchorY(target);
+  const dxPx = ((anchorX - startX) / 100) * window.innerWidth;
+  const dyPx = ((anchorY - startY) / 100) * window.innerHeight;
+  const length = clamp(Math.sqrt(dxPx * dxPx + dyPx * dyPx), 22, 190);
+  const angle = Math.atan2(dyPx, dxPx) * (180 / Math.PI) - 90;
+  return `height:${length.toFixed(1)}px;transform:rotate(${angle.toFixed(1)}deg);`;
 }
 
 function computeTargetForPeak(peak) {
@@ -1235,7 +1432,7 @@ function buildCompassDial() {
     <div class="dial-ring ring-center" aria-hidden="true"></div>
     ${ticks.join("")}
     ${labelMarkup}
-    <span class="dial-center"><b>82°</b><small>FOV</small></span>
+    <span class="dial-center"><b>${FOV_DEGREES}°</b><small>FOV</small></span>
   `;
 }
 
@@ -1737,7 +1934,7 @@ function renderDevPanel() {
   targets.forEach((target, index) => {
     rows.push([
       `目标 ${index + 1}`,
-      `${target.peak.name} · 方位 ${Math.round(target.bearing)}° · 偏差 ${Math.round(target.relative)}° · ${formatDistance(target.distance)} · 可信度 ${Math.round(target.confidence * 100)}%`
+      `${target.peak.name} · ${target.selectionReason === "center" ? "中心主目标" : "最近优先"} · 方位 ${Math.round(target.bearing)}° · 偏差 ${Math.round(target.relative)}° · ${formatDistance(target.distance)} · 锚点 ${target.anchorSource || "data"} · 可信度 ${Math.round(target.confidence * 100)}%`
     ]);
   });
 

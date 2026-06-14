@@ -592,14 +592,15 @@ button {
   backdrop-filter: blur(14px);
 }
 
-.mountain-label::before {
-  content: "";
+.label-stem {
   position: absolute;
   left: 50%;
-  bottom: -45px;
+  top: 100%;
   width: 1px;
-  height: 45px;
+  min-height: 22px;
   background: linear-gradient(180deg, rgba(240, 184, 77, 0.82), transparent);
+  transform-origin: 50% 0;
+  pointer-events: none;
 }
 
 .mountain-label strong {
@@ -1265,7 +1266,7 @@ button {
   border: 1px solid rgba(24, 83, 49, 0.34);
   background:
     radial-gradient(circle, rgba(255, 255, 255, 0.1) 0 22%, transparent 23%),
-    conic-gradient(from -41deg, rgba(48, 166, 89, 0.3) 0 82deg, transparent 82deg 360deg);
+    conic-gradient(from -35deg, rgba(48, 166, 89, 0.3) 0 70deg, transparent 70deg 360deg);
   box-shadow: inset 0 0 0 1px rgba(240, 255, 221, 0.18), 0 0 28px rgba(48, 166, 89, 0.18);
   pointer-events: none;
   transform-origin: center;
